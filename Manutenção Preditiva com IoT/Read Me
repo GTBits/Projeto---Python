@@ -1,0 +1,23 @@
+# 🏭 VULTUR - Industrial Predictive Maintenance (IoT)
+
+## 🎯 Project Goal
+Desenvolvimento de um sistema de **Manutenção Preditiva** para monitoramento de motores industriais. O objetivo é prever falhas mecânicas antes que elas ocorram, utilizando dados de sensores (IoT) e Machine Learning.
+
+## ⚙️ Engineering Pipeline
+1.  **Digital Twin Generation:** Script Python que simula o comportamento físico de 5 motores industriais, gerando dados de:
+    * Temperatura (com drift térmico pré-falha).
+    * Vibração (picos exponenciais).
+    * Rotação (RPM) e Pressão.
+2.  **Data Warehouse:** Armazenamento de séries temporais (Time Series) no SQL Server (`VULTUR_DB`).
+3.  **Machine Learning:** Modelo **Random Forest Classifier** treinado para detectar padrões não-lineares de degradação.
+
+## 📊 Results
+O modelo atingiu performance de nível produtivo na detecção de falhas iminentes:
+- **Recall (Sensibilidade):** 84% (Detectou 84% das falhas reais).
+- **Precision:** 99% (Baixíssimo índice de alarmes falsos).
+- **Key Indicator:** A análise de *Feature Importance* revelou que a **Temperatura** é o principal previsor de falha (52% de importância), seguida pela Vibração.
+
+## 🛠️ Tech Stack
+- Python 3.10 (Pandas, Numpy, Scikit-Learn)
+- SQL Server (Time Series Storage)
+- Matplotlib/Seaborn (Data Viz)
