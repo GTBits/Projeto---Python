@@ -1,0 +1,38 @@
+# 🛡️ SENTINEL - Real-Time Brand Reputation Monitor
+
+![Sentinel Dashboard](assets/dashboard_kpi.png)
+
+## 🎯 Project Overview
+O **SENTINEL** é um sistema de monitoramento de reputação em tempo real que utiliza **Processamento de Linguagem Natural (NLP)** para analisar o sentimento de posts em redes sociais (simulados). O objetivo é detectar crises de imagem e disparar alertas automáticos para stakeholders.
+
+## 🏗️ Microservices Architecture
+Diferente de scripts monolíticos, este projeto foi desenhado em **Arquitetura Modular**, onde cada script desempenha uma função única no pipeline de dados:
+
+1.  **Ingestion Layer (`03_generator.py`):** Simula um stream de dados do Twitter/X, injetando dados brutos no SQL Server (Tabela `Raw_Posts`).
+2.  **Cleaning Layer (`cleaner.py`):** Módulo reutilizável para higienização de texto (remoção de emojis, pontuação e normalização).
+3.  **ML Core (`05_train_nlp.py` & `06_predictor.py`):**
+    * Treinamento de modelo **Logistic Regression** (Scikit-Learn).
+    * Pipeline de inferência que lê novos dados, classifica (Pos/Neg/Neu) e salva na camada refinada (`Gold_Analytics`).
+4.  **Frontend (`app.py`):** Aplicação Web interativa desenvolvida em **Streamlit**, consumindo dados processados em tempo real.
+
+## 📊 Key Features
+- **Real-Time Dashboard:** Atualização automática a cada 5 segundos.
+- **Sentiment Scoring:** Classificação de posts com grau de probabilidade.
+- **Crisis Alert:** Monitoramento contínuo da taxa de negatividade > 40%.
+
+## 🛠️ Tech Stack
+- **Language:** Python 3.12
+- **Web Framework:** Streamlit
+- **Machine Learning:** Scikit-Learn (NLP Bag-of-Words)
+- **Database:** SQL Server 2022
+- **ETL:** SQLAlchemy & Pandas
+
+---
+Requisitos
+pandas
+sqlalchemy
+pyodbc
+faker
+scikit-learn
+streamlit
+matplotlib
