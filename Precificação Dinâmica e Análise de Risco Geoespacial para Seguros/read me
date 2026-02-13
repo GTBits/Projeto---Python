@@ -1,0 +1,25 @@
+# AIGIS - Intelligent Underwriting System
+
+Sistema de precificação dinâmica e análise de risco para seguradoras, utilizando Machine Learning e Geoanálise.
+
+## 🏗️ Arquitetura do Projeto
+O projeto simula uma operação completa de seguradora (End-to-End):
+
+1.  **Database (SQL Server):** Modelagem Relacional (3NF) com tabelas de Apólices, Veículos e Histórico de Sinistros.
+2.  **ETL & Generator (Python):** Script que gera 5.000 apólices sintéticas com clusters geográficos de risco (zonas de roubo simuladas em Lat/Lon).
+3.  **Risk Engine (Scikit-Learn):** Modelo `GradientBoostingClassifier` treinado para prever probabilidade de sinistro (Frequência).
+4.  **Pricing Engine:** Algoritmo atuarial que combina a probabilidade da IA com o valor do bem (FIPE) para calcular o prêmio justo em tempo real.
+5.  **Dashboard (Streamlit):** Interface web para subscrição (Underwriting) com simulação de preços e mapa de calor.
+
+## 🛠️ Tech Stack
+* **Linguagem:** Python 3.12
+* **Banco de Dados:** SQL Server
+* **Machine Learning:** Scikit-Learn (Gradient Boosting)
+* **Web App:** Streamlit + Caching Strategy
+* **Visualização:** Plotly & Mapdeck
+
+## 🚀 Como Rodar
+1. Executar `sql/setup_aigis.sql` no SQL Server.
+2. Rodar `python src/01_generator.py` para popular o banco.
+3. Rodar `python src/02_risk_engine.py` para treinar a IA.
+4. Iniciar o app: `streamlit run src/app.py`.
