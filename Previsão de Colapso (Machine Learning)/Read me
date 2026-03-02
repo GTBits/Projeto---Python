@@ -1,0 +1,34 @@
+# 🚇 Sistema de Telemetria e IA para Túneis (CCO via Telegram)
+
+Este projeto transforma um bot do Telegram em um **Centro de Controle Operacional (CCO)** de bolso para obras de escavação subterrânea e mineração. Ele conecta diretamente com bancos de dados SQL Server para monitorar a saúde da obra em tempo real.
+
+## 🏗️ Arquitetura do Sistema
+O robô cruza dados de três verticais diferentes da engenharia:
+1. **Geotecnia (Rocha):** Lê a deformação das estacas e utiliza **Machine Learning (Regressão Linear)** para prever a quantidade de dias até um possível colapso estrutural.
+2. **Utilidades (Qualidade do Ar):** Monitora sensores de CO, NO2 e LEL, disparando alertas e indicando a potência dos exaustores da frente de obra.
+3. **Maquinário (Telemetria):** Acompanha temperatura do motor e pressão do óleo da frota pesada (Escavadeiras e Caminhões).
+
+## 🚀 Funcionalidades Principais
+* `/status` - Resumo da deformação da rocha nas frentes de escavação.
+* `/gases` - Monitoramento em tempo real de gases tóxicos e explosivos.
+* `/maquinas` - Telemetria da frota pesada operando no túnel.
+* `/critico` - Roda o modelo de IA e exibe apenas frentes com risco de ruptura.
+* `/diagnostico` - Função Analítica: Cruza os 3 bancos de dados para encontrar a causa raiz de um problema (Ex: *Gás alto causado por escavadeira superaquecendo*).
+* `/grafico` - Desenha a curva de convergência geológico-geotécnica (em RAM).
+* `/grafico_gases` - Gera um painel de barras com os limites de tolerância.
+* `/relatorio` - Extrai a base SQL e envia um arquivo `.csv` diretamente no chat.
+
+## 🛠️ Tecnologias Utilizadas
+* **Python** (Lógica principal e construção do Bot)
+* **SQL Server** (Bancos de Dados)
+* **Pandas** (Manipulação de DataFrames)
+* **Scikit-Learn** (Modelo preditivo de Machine Learning)
+* **Matplotlib** (Geração de gráficos dinâmicos na Memória RAM)
+* **pyTelegramBotAPI** (Integração com a API do Telegram)
+
+## ⚙️ Como Executar o Projeto Localmente
+1. Clone este repositório.
+2. Instale as dependências executando: `pip install -r requirements.txt`
+3. Execute os arquivos `.sql` disponíveis na pasta para montar a estrutura no seu SQL Server.
+4. Insira o Token do seu bot criado no BotFather dentro do arquivo `bot_interativo.py`.
+5. Rode o arquivo `Ligar_Robo.bat` para iniciar o bot em segundo plano no Windows (background server).
