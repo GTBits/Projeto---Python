@@ -1,0 +1,2137 @@
+"""
+CryptoBI — Market Intelligence Dashboard
+=========================================
+Requires: pip install -r requirements.txt
+Run:      streamlit run app.py
+"""
+
+import streamlit as st
+import streamlit.components.v1 as components
+import pandas as pd
+import numpy as np
+import requests
+import plotly.graph_objects as go
+import plotly.express as px
+import os, json
+from datetime import datetime, timedelta
+
+try:
+    import yfinance as yf
+    YF_OK = True
+except ImportError:
+    YF_OK = False
+
+from google import genai
+from google.genai import types
+
+# ─────────────────────────────────────────
+# API KEYS
+# ─────────────────────────────────────────
+CHAVE_GEMINI        = ""  # https://exchange.gemini.com/settings/api
+CHAVE_COINMARKETCAP = ""  # https://coinmarketcap.com/api/
+CHAVE_LIVECOINWATCH = ""  # https://www.livecoinwatch.com/tools/api
+# DefiLlama: free, no key needed — https://api.llama.fi
+os.environ["GEMINI_API_KEY"] = CHAVE_GEMINI
+
+# ─────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────
+st.set_page_config(
+    page_title="CryptoBI — Market Intelligence",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+# ─────────────────────────────────────────
+# GLOBAL CSS
+# ─────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+    background-color: #0d1117 !important;
+    color: #e6edf3 !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+}
+#MainMenu, footer, header,
+[data-testid="stToolbar"], [data-testid="collapsedControl"],
+[data-testid="stSidebarNav"] { display: none !important; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+[data-testid="stMainBlockContainer"] { padding: 0 2rem 2rem 2rem !important; max-width: 100% !important; }
+
+.nav-bar {
+    background: #161b22; border-bottom: 1px solid #21262d;
+    padding: 13px 2rem; margin: 0 -2rem 0 -2rem;
+    display: flex; align-items: center; gap: 1.5rem;
+}
+.nav-logo { font-family:'IBM Plex Mono',monospace; font-size:1rem; font-weight:500; color:#58a6ff; letter-spacing:.06em; text-transform:uppercase; }
+.nav-tag  { font-size:.68rem; background:#161b22; color:#8b949e; border:1px solid #30363d; border-radius:4px; padding:2px 8px; font-family:'IBM Plex Mono',monospace; }
+
+.stats-bar {
+    background:#0d1117; border-bottom:1px solid #21262d;
+    padding:7px 2rem; margin:0 -2rem 1.75rem -2rem;
+    display:flex; align-items:center; gap:1.5rem; overflow-x:auto;
+}
+.si { display:flex; align-items:center; gap:5px; white-space:nowrap; font-size:.72rem; color:#6e7681; font-family:'IBM Plex Mono',monospace; }
+.sv { color:#e6edf3; }
+.su { color:#3fb950; }
+.sd { color:#f85149; }
+.sep { color:#30363d; }
+
+.kpi-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:1px; background:#21262d; border:1px solid #21262d; border-radius:8px; overflow:hidden; margin-bottom:1.75rem; }
+.kpi-card { background:#161b22; padding:1.1rem 1.4rem; transition:background .12s; }
+.kpi-card:hover { background:#1c2128; }
+.kpi-label { font-size:.68rem; color:#6e7681; text-transform:uppercase; letter-spacing:.08em; font-family:'IBM Plex Mono',monospace; margin-bottom:.35rem; }
+.kpi-value { font-size:1.45rem; font-weight:600; color:#e6edf3; line-height:1.15; margin-bottom:.25rem; }
+.kpi-up   { font-size:.75rem; color:#3fb950; font-family:'IBM Plex Mono',monospace; }
+.kpi-down { font-size:.75rem; color:#f85149; font-family:'IBM Plex Mono',monospace; }
+.kpi-sub  { font-size:.68rem; color:#484f58; font-family:'IBM Plex Mono',monospace; margin-top:.15rem; }
+
+.sec-hdr { display:flex; align-items:baseline; gap:.6rem; margin-bottom:.75rem; padding-bottom:.45rem; border-bottom:1px solid #21262d; }
+.sec-ttl { font-size:.8rem; font-weight:600; color:#c9d1d9; text-transform:uppercase; letter-spacing:.08em; font-family:'IBM Plex Mono',monospace; }
+.sec-cnt { font-size:.68rem; color:#6e7681; font-family:'IBM Plex Mono',monospace; }
+
+[data-testid="stTabs"] [role="tablist"] { background:transparent !important; border-bottom:1px solid #21262d !important; }
+[data-testid="stTabs"] [role="tab"]     { color:#6e7681 !important; font-family:'IBM Plex Mono',monospace !important; font-size:.72rem !important; text-transform:uppercase !important; letter-spacing:.06em !important; }
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] { color:#58a6ff !important; border-bottom:2px solid #1f6feb !important; }
+[data-testid="column"] { padding:0 !important; }
+hr { border:none; border-top:1px solid #21262d !important; margin:1.5rem 0 !important; }
+
+[data-testid="stChatInput"]          { background:#161b22 !important; border:1px solid #30363d !important; border-radius:6px !important; }
+[data-testid="stChatInput"] textarea { background:transparent !important; color:#e6edf3 !important; font-family:'IBM Plex Sans',sans-serif !important; font-size:.84rem !important; }
+[data-testid="stChatInput"] button   { background:#1f6feb !important; border-radius:4px !important; }
+
+[data-testid="stButton"] button {
+    background:#161b22 !important; border:1px solid #30363d !important; color:#8b949e !important;
+    font-family:'IBM Plex Mono',monospace !important; font-size:.7rem !important;
+    text-transform:uppercase !important; letter-spacing:.06em !important; border-radius:5px !important;
+    transition:border-color .12s, color .12s !important;
+}
+[data-testid="stButton"] button:hover { border-color:#58a6ff !important; color:#58a6ff !important; }
+</style>
+""", unsafe_allow_html=True)
+
+IFRAME_FONTS = """<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">"""
+
+# ─────────────────────────────────────────
+# CHART THEME
+# ─────────────────────────────────────────
+C = {
+    "bg":     "#0d1117",
+    "paper":  "#0d1117",
+    "card":   "#161b22",
+    "border": "#21262d",
+    "grid":   "#21262d",
+    "txt":    "#8b949e",
+    "light":  "#c9d1d9",
+    "up":     "#3fb950",
+    "dn":     "#f85149",
+    "blue":   "#58a6ff",
+    "yellow": "#f6ae2d",
+    "line":   "#1f6feb",
+}
+LAYOUT = dict(
+    paper_bgcolor=C["paper"], plot_bgcolor=C["bg"],
+    font=dict(family="IBM Plex Mono,monospace", color=C["txt"], size=11),
+    margin=dict(l=0, r=0, t=36, b=0),
+    showlegend=False,
+    xaxis=dict(gridcolor=C["grid"], showline=False, tickfont=dict(size=10)),
+    yaxis=dict(gridcolor=C["grid"], showline=False, tickfont=dict(size=10)),
+)
+
+def layout(**overrides):
+    return {**LAYOUT, **overrides}
+
+def chart_sub(txt):
+    st.markdown(
+        f'<p style="font-size:.72rem;color:#6e7681;font-family:IBM Plex Mono,monospace;'
+        f'text-transform:uppercase;letter-spacing:.06em;margin:.75rem 0 .4rem">{txt}</p>',
+        unsafe_allow_html=True,
+    )
+
+
+# ─────────────────────────────────────────
+# DATA FETCHERS
+# ─────────────────────────────────────────
+
+@st.cache_data(ttl=60)
+def fetch_crypto(limit=100):
+    try:
+        url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
+        r = requests.get(url,
+            params={"start":"1","limit":str(limit),"convert":"USD"},
+            headers={"Accepts":"application/json","X-CMC_PRO_API_KEY":CHAVE_COINMARKETCAP},
+            timeout=12)
+        r.raise_for_status()
+        rows = []
+        for c in r.json()["data"]:
+            q = c["quote"]["USD"]
+            rows.append({
+                "rank":   c["cmc_rank"],
+                "name":   c["name"],
+                "symbol": c["symbol"],
+                "price":  q["price"],
+                "pct24h": q.get("percent_change_24h") or 0,
+                "pct7d":  q.get("percent_change_7d")  or 0,
+                "pct30d": q.get("percent_change_30d", 0) or 0,
+                "mcap":   q.get("market_cap") or 0,
+                "vol24h": q.get("volume_24h") or 0,
+                "supply": c.get("circulating_supply") or 0,
+            })
+        return pd.DataFrame(rows)
+    except Exception as e:
+        st.error(f"CoinMarketCap error: {e}")
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=120)
+def fetch_global():
+    try:
+        r = requests.get("https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest",
+            headers={"Accepts":"application/json","X-CMC_PRO_API_KEY":CHAVE_COINMARKETCAP},
+            timeout=10)
+        r.raise_for_status()
+        d = r.json()["data"]
+        return {
+            "btc_dom":  d.get("btc_dominance", 0),
+            "eth_dom":  d.get("eth_dominance", 0),
+            "mcap":     d["quote"]["USD"]["total_market_cap"],
+            "vol24h":   d["quote"]["USD"]["total_volume_24h"],
+            "coins":    d.get("total_cryptocurrencies", 0),
+            "alts_dom": 100 - d.get("btc_dominance", 0) - d.get("eth_dominance", 0),
+        }
+    except:
+        return None
+
+
+@st.cache_data(ttl=1800)
+def fetch_fear_greed(limit=90):
+    """alternative.me — índice clássico de medo e ganância."""
+    try:
+        r = requests.get(f"https://api.alternative.me/fng/?limit={limit}", timeout=8)
+        r.raise_for_status()
+        df = pd.DataFrame(r.json()["data"])
+        df["value"] = df["value"].astype(int)
+        df["timestamp"] = pd.to_datetime(df["timestamp"].astype(int), unit="s")
+        return df.sort_values("timestamp").reset_index(drop=True)
+    except:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=1800)
+def fetch_fear_greed_cmc(limit=90):
+    """
+    CoinMarketCap Fear & Greed Index.
+    Endpoint: /v3/fear-and-greed/historical (plano básico gratuito).
+    Fallback silencioso se a chave não tiver acesso.
+    """
+    try:
+        # Latest
+        r_lat = requests.get(
+            "https://pro-api.coinmarketcap.com/v3/fear-and-greed/latest",
+            headers={"Accepts": "application/json", "X-CMC_PRO_API_KEY": CHAVE_COINMARKETCAP},
+            timeout=8,
+        )
+        latest_val = None
+        if r_lat.status_code == 200:
+            d = r_lat.json().get("data", {})
+            latest_val = int(d.get("value", 0)) if d else None
+
+        # Historical
+        r_hist = requests.get(
+            "https://pro-api.coinmarketcap.com/v3/fear-and-greed/historical",
+            headers={"Accepts": "application/json", "X-CMC_PRO_API_KEY": CHAVE_COINMARKETCAP},
+            params={"limit": str(limit)},
+            timeout=10,
+        )
+        hist_df = pd.DataFrame()
+        if r_hist.status_code == 200:
+            data = r_hist.json().get("data", [])
+            if data:
+                rows = []
+                for d in data:
+                    rows.append({
+                        "value": int(d.get("value", 0)),
+                        "value_classification": d.get("value_classification", ""),
+                        "timestamp": pd.to_datetime(d.get("timestamp", ""), utc=True).tz_localize(None)
+                        if "Z" in str(d.get("timestamp","")) or "T" in str(d.get("timestamp",""))
+                        else pd.to_datetime(d.get("timestamp", ""), unit="s"),
+                    })
+                hist_df = pd.DataFrame(rows).sort_values("timestamp").reset_index(drop=True)
+
+        return {"latest": latest_val, "history": hist_df}
+    except:
+        return {"latest": None, "history": pd.DataFrame()}
+
+
+@st.cache_data(ttl=3600)
+def fetch_btc_history():
+    if not YF_OK:
+        return pd.DataFrame()
+    try:
+        df = yf.download("BTC-USD", period="max", auto_adjust=True, progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df.index = pd.to_datetime(df.index)
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        return df[["Close"]].dropna()
+    except Exception as e:
+        return pd.DataFrame()
+
+
+# ─── LiveCoinWatch ──────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=60)
+def fetch_livecoinwatch(symbols=None):
+    if symbols is None:
+        symbols = ["BTC","ETH","BNB","SOL","XRP","ADA","DOGE","TRX","USDT","USDC"]
+    try:
+        results = {}
+        for sym in symbols:
+            r = requests.post(
+                "https://api.livecoinwatch.com/coins/single",
+                headers={"x-api-key": CHAVE_LIVECOINWATCH, "content-type": "application/json"},
+                json={"currency":"USD","code":sym,"meta":False},
+                timeout=8,
+            )
+            if r.status_code == 200:
+                d = r.json()
+                results[sym] = {
+                    "price":   d.get("rate", 0),
+                    "pct24h":  (d.get("delta", {}).get("day", 1) - 1) * 100,
+                    "vol24h":  d.get("volume", 0),
+                    "mcap":    d.get("cap", 0),
+                    "source":  "LiveCoinWatch",
+                }
+        return results
+    except:
+        return {}
+
+
+# ─── DefiLlama ──────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=300)
+def fetch_defillama_chains():
+    try:
+        r = requests.get("https://api.llama.fi/v2/chains", timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        rows = []
+        for c in data:
+            rows.append({
+                "chain":   c.get("name",""),
+                "symbol":  c.get("tokenSymbol",""),
+                "tvl":     c.get("tvl", 0),
+            })
+        df = pd.DataFrame(rows).sort_values("tvl", ascending=False).reset_index(drop=True)
+        return df
+    except:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
+def fetch_defillama_protocols(top=30):
+    try:
+        r = requests.get("https://api.llama.fi/protocols", timeout=12)
+        r.raise_for_status()
+        data = r.json()
+        rows = []
+        for p in data[:top * 3]:
+            if not p.get("tvl"):
+                continue
+            rows.append({
+                "name":     p.get("name",""),
+                "symbol":   p.get("symbol",""),
+                "category": p.get("category",""),
+                "chains":   ", ".join(p.get("chains",[])[:3]),
+                "tvl":      p.get("tvl", 0),
+                "change1d": p.get("change_1d") or 0,
+                "change7d": p.get("change_7d") or 0,
+                "mcap":     p.get("mcap") or 0,
+            })
+        df = pd.DataFrame(rows).sort_values("tvl", ascending=False).head(top).reset_index(drop=True)
+        return df
+    except:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=600)
+def fetch_defillama_global_tvl():
+    try:
+        r = requests.get("https://api.llama.fi/v2/historicalChainTvl", timeout=12)
+        r.raise_for_status()
+        data = r.json()
+        rows = [{"date": pd.to_datetime(d["date"], unit="s"), "tvl": d["tvl"]} for d in data]
+        return pd.DataFrame(rows)
+    except:
+        return pd.DataFrame()
+
+
+# ─── Cross-source price aggregation ─────────────────────────────────────────
+
+@st.cache_data(ttl=60)
+def fetch_cross_source_prices(cmc_df: pd.DataFrame):
+    SYMBOLS = ["BTC","ETH","BNB","SOL","XRP","ADA","DOGE","TRX","LINK","AVAX",
+               "DOT","MATIC","UNI","ATOM","LTC","BCH","XLM","ALGO","VET","FTM"]
+
+    lcw = fetch_livecoinwatch(SYMBOLS)
+
+    rows = []
+    for sym in SYMBOLS:
+        cmc_row = cmc_df[cmc_df["symbol"] == sym]
+        if cmc_row.empty:
+            continue
+        cmc_price  = float(cmc_row["price"].iloc[0])
+        cmc_pct24h = float(cmc_row["pct24h"].iloc[0])
+        lcw_data   = lcw.get(sym, {})
+        lcw_price  = lcw_data.get("price", None)
+        lcw_pct24h = lcw_data.get("pct24h", None)
+
+        sources_price = [p for p in [cmc_price, lcw_price] if p]
+        avg_price = sum(sources_price) / len(sources_price)
+        diff_pct  = ((cmc_price / lcw_price) - 1) * 100 if lcw_price else 0
+
+        sources_pct = [p for p in [cmc_pct24h, lcw_pct24h] if p is not None]
+        avg_pct = sum(sources_pct) / len(sources_pct) if sources_pct else 0
+
+        rows.append({
+            "symbol":       sym,
+            "price_cmc":    cmc_price,
+            "price_lcw":    lcw_price,
+            "price_avg":    avg_price,
+            "diff_pct":     diff_pct,
+            "pct24h_cmc":   cmc_pct24h,
+            "pct24h_lcw":   lcw_pct24h,
+            "pct24h_avg":   avg_pct,
+            "n_sources":    len(sources_price),
+        })
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=3600)
+def fetch_etf_data():
+    if not YF_OK:
+        return {}
+    ETFs = {
+        "IBIT":  "iShares Bitcoin Trust (BlackRock)",
+        "FBTC":  "Fidelity Wise Origin Bitcoin Fund",
+        "GBTC":  "Grayscale Bitcoin Trust",
+        "ARKB":  "ARK 21Shares Bitcoin ETF",
+        "BITB":  "Bitwise Bitcoin ETF",
+        "HODL":  "VanEck Bitcoin ETF",
+        "BTCO":  "Invesco Galaxy Bitcoin ETF",
+        "BRRR":  "Coinshares Valkyrie Bitcoin Fund",
+        "ETHA":  "iShares Ethereum Trust (BlackRock)",
+        "FETH":  "Fidelity Ethereum Fund",
+        "CETH":  "21Shares Core Ethereum ETF",
+    }
+    results = {}
+    for ticker, name in ETFs.items():
+        try:
+            tk = yf.Ticker(ticker)
+            hist = tk.history(period="30d", auto_adjust=True)
+            if hist.empty:
+                continue
+            info = tk.fast_info
+            results[ticker] = {
+                "name":         name,
+                "price":        float(hist["Close"].iloc[-1]),
+                "prev_close":   float(hist["Close"].iloc[-2]) if len(hist) > 1 else None,
+                "pct1d":        (float(hist["Close"].iloc[-1]) / float(hist["Close"].iloc[-2]) - 1) * 100 if len(hist) > 1 else 0,
+                "pct30d":       (float(hist["Close"].iloc[-1]) / float(hist["Close"].iloc[0]) - 1) * 100 if len(hist) > 1 else 0,
+                "vol":          float(hist["Volume"].iloc[-1]),
+                "avg_vol_30d":  float(hist["Volume"].mean()),
+                "hist":         hist["Close"],
+            }
+        except:
+            pass
+    return results
+
+
+# ─────────────────────────────────────────
+# TECHNICAL INDICATORS
+# ─────────────────────────────────────────
+
+def calc_rsi(series, period=14):
+    delta = series.diff()
+    gain  = delta.clip(lower=0)
+    loss  = -delta.clip(upper=0)
+    ag = gain.ewm(com=period - 1, min_periods=period).mean()
+    al = loss.ewm(com=period - 1, min_periods=period).mean()
+    rs = ag / al
+    return (100 - 100 / (1 + rs)).rename("RSI")
+
+
+def calc_macd(series, fast=12, slow=26, signal=9):
+    ema_f = series.ewm(span=fast, adjust=False).mean()
+    ema_s = series.ewm(span=slow, adjust=False).mean()
+    macd  = ema_f - ema_s
+    sig   = macd.ewm(span=signal, adjust=False).mean()
+    hist  = macd - sig
+    return macd.rename("MACD"), sig.rename("Signal"), hist.rename("Hist")
+
+
+def calc_pi_cycle(df_hist):
+    df = df_hist[["Close"]].copy().dropna()
+    df["SMA111"]   = df["Close"].rolling(111).mean()
+    df["SMA350x2"] = df["Close"].rolling(350).mean() * 2
+    return df
+
+
+def make_rainbow_chart(df_hist):
+    df = df_hist[["Close"]].copy().dropna()
+    genesis = pd.Timestamp("2009-01-03")
+    df["days"] = (df.index - genesis).days
+    df = df[df["days"] > 0]
+
+    x = np.log10(df["days"].values.astype(float))
+    y = np.log10(df["Close"].values.astype(float))
+    mask = np.isfinite(x) & np.isfinite(y)
+    a, b = np.polyfit(x[mask], y[mask], 1)
+
+    max_days = int(df["days"].max())
+    proj_days = max_days + 730
+    all_days  = np.arange(1, proj_days + 1)
+    all_dates = [genesis + timedelta(days=int(d)) for d in all_days]
+
+    log_reg = a * np.log10(all_days.astype(float)) + b
+
+    step = 0.22
+    offsets = [step * (i - 4.5) for i in range(10)]
+
+    colors_rgba = [
+        "rgba(13,71,161,0.35)",
+        "rgba(21,101,192,0.35)",
+        "rgba(25,118,210,0.35)",
+        "rgba(46,125,50,0.35)",
+        "rgba(56,142,60,0.35)",
+        "rgba(249,168,37,0.35)",
+        "rgba(245,124,0,0.35)",
+        "rgba(229,57,53,0.35)",
+        "rgba(183,28,28,0.35)",
+    ]
+    colors_solid = ["#0d47a1","#1565c0","#1976d2","#2e7d32","#388e3c",
+                    "#f9a825","#f57c00","#e53935","#b71c1c"]
+    labels = [
+        "Maximum Bubble Territory",
+        "Sell. Seriously, SELL!",
+        "FOMO Intensifies",
+        "Is This a Bubble?",
+        "HODL",
+        "Still Cheap",
+        "Accumulate",
+        "Buy!",
+        "Basically a Fire Sale",
+    ]
+
+    fig = go.Figure()
+
+    band_prices = [10 ** (log_reg + off) for off in offsets]
+
+    for i in range(9):
+        fig.add_trace(go.Scatter(
+            x=all_dates, y=band_prices[i + 1],
+            mode="lines", line=dict(width=0),
+            showlegend=False, hoverinfo="skip",
+        ))
+        fig.add_trace(go.Scatter(
+            x=all_dates, y=band_prices[i],
+            mode="lines", line=dict(width=0),
+            fill="tonexty",
+            fillcolor=colors_rgba[i],
+            name=labels[8 - i],
+            hoverinfo="skip",
+            legendgroup=labels[8 - i],
+            showlegend=True,
+        ))
+
+    fig.add_trace(go.Scatter(
+        x=all_dates, y=10 ** log_reg,
+        mode="lines", name="Log Regression",
+        line=dict(color=C["blue"], width=1, dash="dot"),
+        hovertemplate="Regression: $%{y:,.0f}<extra></extra>",
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=df.index, y=df["Close"],
+        mode="lines", name="BTC / USD",
+        line=dict(color="#ffffff", width=1.8),
+        hovertemplate="<b>%{x|%Y-%m-%d}</b><br>$%{y:,.0f}<extra></extra>",
+    ))
+
+    last_price = float(df["Close"].iloc[-1])
+    last_date  = df.index[-1]
+    fig.add_trace(go.Scatter(
+        x=[last_date], y=[last_price],
+        mode="markers", name="Current Price",
+        marker=dict(color="#ffffff", size=8, symbol="circle",
+                    line=dict(color=C["blue"], width=2)),
+        hovertemplate=f"<b>Now</b>: ${last_price:,.0f}<extra></extra>",
+    ))
+
+    # ── Calcular range Y justo: do bottom band até o top band no range de datas visíveis
+    # Usamos os dias do início do BTC até a projeção
+    y_min_log = float(np.min(log_reg + offsets[0]))   # banda mais baixa
+    y_max_log = float(np.max(log_reg + offsets[-1]))   # banda mais alta
+    # Margem de 5% em log scale
+    y_pad = (y_max_log - y_min_log) * 0.05
+    y_range = [y_min_log - y_pad, y_max_log + y_pad]
+
+    # Range X: do primeiro dado real até o fim da projeção
+    x_start = df.index[0]
+    x_end   = all_dates[-1]
+
+    fig.update_layout(
+        **layout(
+            height=660,
+            yaxis=dict(
+                type="log",
+                gridcolor=C["grid"],
+                tickprefix="$",
+                tickformat=",.0f",
+                tickfont=dict(size=10),
+                range=y_range,           # <-- range fixo nos valores das bandas
+                fixedrange=False,
+            ),
+            xaxis=dict(
+                gridcolor=C["grid"],
+                tickfont=dict(size=10),
+                range=[str(x_start)[:10], str(x_end)[:10]],
+                fixedrange=False,
+            ),
+            showlegend=True,
+            legend=dict(
+                bgcolor=C["card"], bordercolor=C["border"], borderwidth=1,
+                font=dict(size=9), x=0.01, y=0.99,
+                orientation="v", traceorder="reversed",
+            ),
+            hovermode="x unified",
+            title=dict(
+                text="Bitcoin Rainbow Price Chart — Log Regression",
+                font=dict(size=13, color=C["light"]), x=0,
+            ),
+            uirevision="rainbow",   # mantém estado de zoom entre rerenders
+            dragmode="zoom",
+        )
+    )
+    return fig, a, b
+
+
+# ─────────────────────────────────────────
+# FORMATTERS
+# ─────────────────────────────────────────
+
+def fu(v, d=2):
+    if v is None or (isinstance(v, float) and np.isnan(v)): return "—"
+    if v >= 1e12: return f"${v/1e12:.2f}T"
+    if v >= 1e9:  return f"${v/1e9:.2f}B"
+    if v >= 1e6:  return f"${v/1e6:.2f}M"
+    if v >= 1e3:  return f"${v:,.{d}f}"
+    if v >= 1:    return f"${v:.{d}f}"
+    return f"${v:.6f}"
+
+def fp(v):
+    if v is None: return "—"
+    return f"{'+'if v>0 else ''}{v:.2f}%"
+
+def fc(v):
+    return "su" if v >= 0 else "sd"
+
+def kpi_delta(v):
+    if v is None: return ""
+    cls = "kpi-up" if v >= 0 else "kpi-down"
+    return f'<div class="{cls}">{"+"if v>=0 else ""}{v:.2f}% (24h)</div>'
+
+def fg_label(v):
+    if v is None: return ("—", "#6e7681")
+    if v <= 24: return ("Extreme Fear", "#f85149")
+    if v <= 44: return ("Fear",         "#ffa726")
+    if v <= 55: return ("Neutral",      "#f6ae2d")
+    if v <= 74: return ("Greed",        "#a5d6a7")
+    return              ("Extreme Greed","#3fb950")
+
+def fmt_supply(v, sym):
+    if not v: return "—"
+    if v >= 1e9: return f"{v/1e9:.2f}B {sym}"
+    if v >= 1e6: return f"{v/1e6:.2f}M {sym}"
+    return f"{v:,.0f} {sym}"
+
+
+# ─────────────────────────────────────────
+# LOAD DATA
+# ─────────────────────────────────────────
+
+with st.spinner(""):
+    df          = fetch_crypto(limit=100)
+    gm          = fetch_global()
+    fg_df       = fetch_fear_greed(limit=90)
+    fg_cmc      = fetch_fear_greed_cmc(limit=90)
+    btc_hist    = fetch_btc_history()
+    dl_chains   = fetch_defillama_chains()
+    dl_protos   = fetch_defillama_protocols(top=30)
+    dl_tvl_hist = fetch_defillama_global_tvl()
+
+if df.empty:
+    st.error("No data. Check your CoinMarketCap API key.")
+    st.stop()
+
+btc = df[df["symbol"]=="BTC"].iloc[0] if "BTC" in df["symbol"].values else None
+eth = df[df["symbol"]=="ETH"].iloc[0] if "ETH" in df["symbol"].values else None
+
+# ── Fear & Greed: two sources + composite ──────────────────────────────────
+fg_alt_now = int(fg_df["value"].iloc[-1]) if not fg_df.empty else None
+fg_cmc_now = fg_cmc.get("latest", None)
+
+_fg_vals = [v for v in [fg_alt_now, fg_cmc_now] if v is not None]
+fg_now = round(sum(_fg_vals) / len(_fg_vals)) if _fg_vals else None
+
+fg_lbl, fg_color = fg_label(fg_now)
+fg_alt_lbl, fg_alt_color = fg_label(fg_alt_now)
+fg_cmc_lbl, fg_cmc_color = fg_label(fg_cmc_now)
+
+
+# ─────────────────────────────────────────
+# NAV BAR
+# ─────────────────────────────────────────
+
+st.markdown(f"""
+<div class="nav-bar">
+    <span class="nav-logo">CryptoBI</span>
+    <span class="nav-tag">Live Market</span>
+    <span class="nav-tag">Top {len(df)}</span>
+    <span class="nav-tag">USD</span>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────
+# STATS BAR
+# ─────────────────────────────────────────
+
+if gm:
+    mc  = gm["mcap"];  mc_s  = f"${mc/1e12:.2f}T"  if mc  >= 1e12 else f"${mc/1e9:.0f}B"
+    vol = gm["vol24h"]; vol_s = f"${vol/1e12:.2f}T" if vol >= 1e12 else f"${vol/1e9:.0f}B"
+    st.markdown(f"""
+    <div class="stats-bar">
+        <div class="si">Global MCap <span class="sv">{mc_s}</span></div><span class="sep">|</span>
+        <div class="si">24h Vol <span class="sv">{vol_s}</span></div><span class="sep">|</span>
+        <div class="si">BTC Dom <span class="sv">{gm['btc_dom']:.1f}%</span></div><span class="sep">|</span>
+        <div class="si">ETH Dom <span class="sv">{gm['eth_dom']:.1f}%</span></div><span class="sep">|</span>
+        <div class="si">Altcoins <span class="sv">{gm['alts_dom']:.1f}%</span></div><span class="sep">|</span>
+        <div class="si">Fear &amp; Greed <span style="color:{fg_color};font-weight:500">{fg_now} — {fg_lbl}</span></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────
+# KPI CARDS
+# ─────────────────────────────────────────
+
+mc_g   = gm["mcap"] if gm else df["mcap"].sum()
+mc_kpi = f"${mc_g/1e12:.3f}T" if mc_g >= 1e12 else f"${mc_g/1e9:.1f}B"
+
+fg_kpi_color = fg_color
+fg_kpi_val   = str(fg_now) if fg_now else "—"
+
+st.markdown(f"""
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-label">Bitcoin</div>
+        <div class="kpi-value">{fu(btc['price']) if btc is not None else '—'}</div>
+        {kpi_delta(btc['pct24h'] if btc is not None else None)}
+        <div class="kpi-sub">BTC / USD</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Ethereum</div>
+        <div class="kpi-value">{fu(eth['price']) if eth is not None else '—'}</div>
+        {kpi_delta(eth['pct24h'] if eth is not None else None)}
+        <div class="kpi-sub">ETH / USD</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Global Market Cap</div>
+        <div class="kpi-value">{mc_kpi}</div>
+        <div class="kpi-sub">All assets</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Volume 24h (Top {len(df)})</div>
+        <div class="kpi-value">${df['vol24h'].sum()/1e9:.1f}B</div>
+        <div class="kpi-sub">Aggregated trading</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Fear &amp; Greed Index</div>
+        <div class="kpi-value" style="color:{fg_kpi_color}">{fg_kpi_val}</div>
+        <div style="font-size:.75rem;color:{fg_kpi_color};font-family:'IBM Plex Mono',monospace">{fg_lbl}</div>
+        <div class="kpi-sub">{"alt.me " + str(fg_alt_now) if fg_alt_now else "—"} · {"CMC " + str(fg_cmc_now) if fg_cmc_now else "—"}</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────
+# TABS
+# ─────────────────────────────────────────
+
+tabs = st.tabs(["MARKET","CHARTS","INDICATORS","RAINBOW","ETF FLOWS","DOMINANCE","COMMUNITY","MULTI-SOURCE","AI ANALYST"])
+tab_market, tab_charts, tab_ind, tab_rainbow, tab_etf, tab_dom, tab_comm, tab_ms, tab_ai = tabs
+
+
+# ══════════════════════════════════════════
+# TAB 1 — MARKET
+# ══════════════════════════════════════════
+with tab_market:
+    st.markdown(f"""
+    <div class="sec-hdr">
+        <span class="sec-ttl">Cryptocurrencies by Market Cap</span>
+        <span class="sec-cnt">Top {len(df)} — USD — click headers to sort</span>
+    </div>""", unsafe_allow_html=True)
+
+    rows_js = []
+    for _, r in df.iterrows():
+        rows_js.append({
+            "rank":r["rank"],"symbol":r["symbol"],"name":r["name"],
+            "price":r["price"],"p24":r["pct24h"],"p7d":r["pct7d"],
+            "mcap":r["mcap"],"vol":r["vol24h"],"supply":r["supply"],
+        })
+
+    market_html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">{IFRAME_FONTS}
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{background:#0d1117;font-family:'IBM Plex Mono',monospace;color:#e6edf3}}
+  ::-webkit-scrollbar{{width:4px;height:4px}}
+  ::-webkit-scrollbar-thumb{{background:#30363d;border-radius:3px}}
+  .top-bar{{display:flex;align-items:center;gap:12px;padding:0 0 10px 0}}
+  #search{{flex:1;max-width:300px;background:#161b22;border:1px solid #30363d;border-radius:5px;
+    padding:7px 12px;color:#e6edf3;font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none}}
+  #search:focus{{border-color:#58a6ff}}
+  #search::placeholder{{color:#484f58}}
+  .row-cnt{{font-size:11px;color:#484f58;margin-left:auto}}
+  table{{width:100%;border-collapse:collapse;font-size:13px}}
+  thead tr{{border-bottom:1px solid #21262d;position:sticky;top:0;background:#0d1117;z-index:10}}
+  thead th{{padding:9px 13px;font-size:11px;font-weight:500;color:#6e7681;text-transform:uppercase;
+    letter-spacing:.07em;white-space:nowrap;cursor:pointer;user-select:none;text-align:right;transition:color .12s}}
+  thead th:nth-child(-n+2){{text-align:left}}
+  thead th:hover{{color:#c9d1d9}}
+  thead th.asc::after{{content:' ↑';color:#58a6ff}}
+  thead th.desc::after{{content:' ↓';color:#58a6ff}}
+  thead th.asc,thead th.desc{{color:#c9d1d9}}
+  tbody tr{{border-bottom:1px solid #161b22;transition:background .1s}}
+  tbody tr:hover{{background:#161b22}}
+  .cr{{padding:12px 13px;color:#484f58;font-size:12px;text-align:left;white-space:nowrap}}
+  .ca{{padding:12px 13px;text-align:left;white-space:nowrap}}
+  .cn{{padding:12px 13px;text-align:right;white-space:nowrap}}
+  .sym{{font-weight:600;color:#e6edf3;font-size:13px;margin-right:9px}}
+  .nam{{color:#6e7681;font-size:11px;font-family:'IBM Plex Sans',sans-serif}}
+  .up{{color:#3fb950;font-weight:500}}.down{{color:#f85149;font-weight:500}}.neu{{color:#8b949e}}
+  .empty{{padding:32px;text-align:center;color:#484f58;font-size:12px}}
+</style></head><body>
+<div class="top-bar">
+  <input id="search" type="text" placeholder="Search name or symbol..." oninput="run()">
+  <span class="row-cnt" id="rc"></span>
+</div>
+<table id="tbl">
+  <thead><tr>
+    <th data-c="rank" data-t="n">#</th>
+    <th data-c="asset" data-t="s">Asset</th>
+    <th data-c="price" data-t="n">Price</th>
+    <th data-c="p24" data-t="n">24h</th>
+    <th data-c="p7d" data-t="n">7d</th>
+    <th data-c="mcap" data-t="n">Market Cap</th>
+    <th data-c="vol" data-t="n">Volume (24h)</th>
+    <th data-c="supply" data-t="n">Circulating Supply</th>
+  </tr></thead>
+  <tbody id="tb"></tbody>
+</table>
+<script>
+const D={json.dumps(rows_js)};
+let sc='rank',sd=1,q='';
+function fu(v){{
+  if(v==null)return'—';
+  if(v>=1e12)return'$'+(v/1e12).toFixed(2)+'T';
+  if(v>=1e9) return'$'+(v/1e9).toFixed(2)+'B';
+  if(v>=1e6) return'$'+(v/1e6).toFixed(2)+'M';
+  if(v>=1e3) return'$'+v.toLocaleString('en-US',{{minimumFractionDigits:2,maximumFractionDigits:2}});
+  if(v>=1)   return'$'+v.toFixed(2);
+  return'$'+v.toFixed(6);
+}}
+function fp(v){{return v==null?'—':(v>=0?'+':'')+v.toFixed(2)+'%'}}
+function pc(v){{return v>0?'up':v<0?'down':'neu'}}
+function fs(v,s){{
+  if(!v)return'—';
+  if(v>=1e9)return(v/1e9).toFixed(2)+'B '+s;
+  if(v>=1e6)return(v/1e6).toFixed(2)+'M '+s;
+  return v.toLocaleString('en-US')+' '+s;
+}}
+function gv(r,c){{return c==='asset'?r.symbol.toLowerCase():{{rank:r.rank,price:r.price,p24:r.p24,p7d:r.p7d,mcap:r.mcap,vol:r.vol,supply:r.supply}}[c]??0}}
+function run(){{
+  q=document.getElementById('search').value.toLowerCase().trim();
+  let data=D.filter(r=>!q||r.symbol.toLowerCase().includes(q)||r.name.toLowerCase().includes(q));
+  data.sort((a,b)=>{{let av=gv(a,sc),bv=gv(b,sc);return av<bv?-sd:av>bv?sd:0}});
+  document.getElementById('tb').innerHTML=data.length
+    ?data.map(r=>`<tr>
+      <td class="cr">#${{r.rank}}</td>
+      <td class="ca"><span class="sym">${{r.symbol}}</span><span class="nam">${{r.name}}</span></td>
+      <td class="cn">${{fu(r.price)}}</td>
+      <td class="cn"><span class="${{pc(r.p24)}}">${{fp(r.p24)}}</span></td>
+      <td class="cn"><span class="${{pc(r.p7d)}}">${{fp(r.p7d)}}</span></td>
+      <td class="cn">${{fu(r.mcap)}}</td>
+      <td class="cn">${{fu(r.vol)}}</td>
+      <td class="cn">${{fs(r.supply,r.symbol)}}</td>
+    </tr>`).join('')
+    :'<tr><td colspan="8" class="empty">No results</td></tr>';
+  document.getElementById('rc').textContent=data.length+' assets';
+  document.querySelectorAll('thead th').forEach(h=>{{
+    h.classList.remove('asc','desc');
+    if(h.dataset.c===sc)h.classList.add(sd===1?'asc':'desc');
+  }});
+}}
+document.querySelectorAll('thead th').forEach(h=>h.addEventListener('click',()=>{{
+  sc===h.dataset.c?sd*=-1:(sc=h.dataset.c,sd=h.dataset.t==='s'?1:-1);run();
+}}));
+run();
+</script></body></html>"""
+
+    components.html(market_html, height=min(90+len(df)*46,1080), scrolling=True)
+
+
+# ══════════════════════════════════════════
+# TAB 2 — CHARTS
+# ══════════════════════════════════════════
+with tab_charts:
+    st.markdown('<div class="sec-hdr"><span class="sec-ttl">Visual Analysis</span><span class="sec-cnt">Top 20 by Market Cap</span></div>', unsafe_allow_html=True)
+
+    df20 = df.nlargest(20,"mcap").copy()
+
+    c1, c2 = st.columns(2, gap="medium")
+    with c1:
+        chart_sub("24h Change (%)")
+        ds = df20.sort_values("pct24h", ascending=True)
+        fig = go.Figure(go.Bar(
+            x=ds["pct24h"], y=ds["symbol"], orientation="h",
+            marker_color=[C["up"] if v>=0 else C["dn"] for v in ds["pct24h"]],
+            text=[fp(v) for v in ds["pct24h"]], textposition="outside",
+            textfont=dict(size=9), hovertemplate="<b>%{y}</b>  %{x:.2f}%<extra></extra>",
+        ))
+        fig.add_vline(x=0, line_color=C["border"], line_width=1)
+        fig.update_layout(**layout(height=480,
+            xaxis=dict(gridcolor=C["grid"],ticksuffix="%"),
+            yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        ))
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        chart_sub("Market Cap Distribution — Top 15")
+        df15 = df.nlargest(15,"mcap")
+        fig2 = px.treemap(df15, path=["symbol"], values="mcap",
+            color="pct24h", color_continuous_scale=["#f85149","#21262d","#3fb950"],
+            color_continuous_midpoint=0, custom_data=["name","price","pct24h"])
+        fig2.update_traces(
+            texttemplate="<b>%{label}</b><br>%{customdata[2]:.2f}%", textfont_size=12,
+            hovertemplate="<b>%{label}</b><br>$%{customdata[1]:,.2f}<br>MCap: $%{value:,.0f}<extra></extra>")
+        fig2.update_layout(paper_bgcolor=C["paper"],margin=dict(l=0,r=0,t=0,b=0),height=480,coloraxis_showscale=False)
+        st.plotly_chart(fig2, use_container_width=True)
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    c3, c4 = st.columns(2, gap="medium")
+    with c3:
+        chart_sub("Volume 24h vs Market Cap — Top 50 (log)")
+        df50 = df.nlargest(50,"mcap")
+        fig3 = go.Figure(go.Scatter(
+            x=df50["mcap"]/1e9, y=df50["vol24h"]/1e9, mode="markers+text",
+            marker=dict(size=9, color=[C["up"] if v>=0 else C["dn"] for v in df50["pct24h"]], opacity=.8,line=dict(width=1,color=C["border"])),
+            text=df50["symbol"], textposition="top center", textfont=dict(size=9),
+            hovertemplate="<b>%{text}</b><br>MCap: $%{x:.1f}B<br>Vol: $%{y:.1f}B<extra></extra>",
+        ))
+        fig3.update_layout(**layout(height=380,
+            xaxis=dict(title="Market Cap (B USD)",gridcolor=C["grid"],type="log"),
+            yaxis=dict(title="Volume 24h (B USD)",gridcolor=C["grid"],type="log"),
+        ))
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with c4:
+        chart_sub("7-Day Performance — Top 20")
+        ds7 = df20.sort_values("pct7d", ascending=True)
+        fig4 = go.Figure(go.Bar(
+            x=ds7["pct7d"], y=ds7["symbol"], orientation="h",
+            marker_color=[C["up"] if v>=0 else C["dn"] for v in ds7["pct7d"]],
+            text=[fp(v) for v in ds7["pct7d"]], textposition="outside",
+            textfont=dict(size=9), hovertemplate="<b>%{y}</b>  %{x:.2f}%<extra></extra>",
+        ))
+        fig4.add_vline(x=0, line_color=C["border"], line_width=1)
+        fig4.update_layout(**layout(height=380,
+            xaxis=dict(gridcolor=C["grid"],ticksuffix="%"),
+            yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        ))
+        st.plotly_chart(fig4, use_container_width=True)
+
+
+# ══════════════════════════════════════════
+# TAB 3 — INDICATORS
+# ══════════════════════════════════════════
+with tab_ind:
+    if not YF_OK:
+        st.warning("Install yfinance to enable technical indicators: `pip install yfinance`")
+    elif btc_hist.empty:
+        st.warning("Could not load BTC historical data from Yahoo Finance.")
+    else:
+        price = btc_hist["Close"].squeeze()
+
+        # ── Fear & Greed — multi-source ─────────
+        st.markdown('''<div class="sec-hdr">
+            <span class="sec-ttl">Fear &amp; Greed Index</span>
+            <span class="sec-cnt">alternative.me · CoinMarketCap · composite average</span>
+        </div>''', unsafe_allow_html=True)
+
+        # ── Gauge colors (background steps) ────
+        gauge_colors = [
+            dict(range=[0,   25], color="#3d1515"),
+            dict(range=[25,  45], color="#3d2200"),
+            dict(range=[45,  55], color="#2a2a00"),
+            dict(range=[55,  75], color="#1a3300"),
+            dict(range=[75, 100], color="#1a3d1a"),
+        ]
+
+        # ══════════════════════════════════════
+        # FIX: make_fg_gauge — corrigido para
+        # exibir o número completo sem truncar
+        # ══════════════════════════════════════
+        def make_fg_gauge(value, label, color, title):
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=value if value is not None else 0,
+                number={
+                    "font": {
+                        "size": 36,
+                        "color": color,
+                        "family": "IBM Plex Mono,monospace",
+                    },
+                    "valueformat": "d",   # força inteiro completo (sem truncar)
+                },
+                title={
+                    "text": (
+                        f"<b>{label}</b><br>"
+                        f"<span style='font-size:11px;color:#6e7681'>{title}</span>"
+                    ),
+                    "font": {
+                        "size": 13,
+                        "color": color,
+                        "family": "IBM Plex Mono,monospace",
+                    },
+                },
+                gauge={
+                    "axis": {
+                        "range": [0, 100],
+                        "tickwidth": 1,
+                        "tickcolor": C["border"],
+                        "tickfont": {"size": 8, "color": C["txt"]},
+                        "nticks": 6,
+                    },
+                    "bar": {"color": color, "thickness": 0.26},
+                    "bgcolor": C["card"],
+                    "borderwidth": 0,
+                    "steps": gauge_colors,
+                },
+            ))
+            fig.update_layout(
+                paper_bgcolor=C["bg"],
+                height=240,
+                margin=dict(l=30, r=30, t=60, b=10),
+                font=dict(
+                    family="IBM Plex Mono,monospace",
+                    color=C["txt"],
+                ),
+            )
+            return fig
+
+        # ── Source cards (3 side by side) ──────
+        gs1, gs2, gs3 = st.columns(3, gap="medium")
+        with gs1:
+            chart_sub("alternative.me")
+            if fg_alt_now is not None:
+                st.plotly_chart(make_fg_gauge(fg_alt_now, fg_alt_lbl, fg_alt_color, "alternative.me"), use_container_width=True)
+            else:
+                st.info("No data from alternative.me")
+
+        with gs2:
+            chart_sub("CoinMarketCap")
+            if fg_cmc_now is not None:
+                st.plotly_chart(make_fg_gauge(fg_cmc_now, fg_cmc_lbl, fg_cmc_color, "CoinMarketCap"), use_container_width=True)
+            else:
+                st.markdown('''<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;font-size:.75rem;color:#6e7681;font-family:IBM Plex Mono,monospace">
+                CMC Fear & Greed requires plan upgrade.<br>
+                <span style="color:#484f58">Endpoint: /v3/fear-and-greed/latest</span>
+                </div>''', unsafe_allow_html=True)
+
+        with gs3:
+            chart_sub("Composite Average")
+            if fg_now is not None:
+                n_src = len([v for v in [fg_alt_now, fg_cmc_now] if v is not None])
+                comp_lbl_extra = f"{n_src} source{'s' if n_src > 1 else ''}"
+                st.plotly_chart(make_fg_gauge(fg_now, fg_lbl, fg_color, f"avg of {comp_lbl_extra}"), use_container_width=True)
+            else:
+                st.info("No data available")
+
+        # ── Divergence alert ───────────────────
+        if fg_alt_now is not None and fg_cmc_now is not None:
+            diff = abs(fg_alt_now - fg_cmc_now)
+            diff_color = C["dn"] if diff >= 10 else C["yellow"] if diff >= 5 else C["up"]
+            st.markdown(f'''
+            <div style="background:#161b22;border:1px solid #21262d;border-radius:6px;padding:10px 16px;
+                        display:inline-flex;align-items:center;gap:12px;margin-bottom:12px">
+              <div style="width:8px;height:8px;border-radius:50%;background:{diff_color};flex-shrink:0"></div>
+              <span style="font-size:.75rem;font-family:IBM Plex Mono,monospace;color:#c9d1d9">
+                Source divergence: <b style="color:{diff_color}">{diff} pts</b>
+                (alt.me {fg_alt_now} · CMC {fg_cmc_now})
+                {"— <b>High divergence — sources disagree</b>" if diff >= 10 else
+                 "— Moderate divergence" if diff >= 5 else "— Sources aligned"}
+              </span>
+            </div>
+            ''', unsafe_allow_html=True)
+
+        # ── History chart + stats ───────────────
+        if not fg_df.empty:
+            ci2, ci3 = st.columns([2, 1.2], gap="medium")
+
+            with ci2:
+                chart_sub("90-Day History — all sources")
+                fig_fg = go.Figure()
+
+                # alternative.me
+                fig_fg.add_trace(go.Scatter(
+                    x=fg_df["timestamp"], y=fg_df["value"],
+                    mode="lines", name="alternative.me",
+                    line=dict(color=C["yellow"], width=2),
+                    fill="tozeroy", fillcolor="rgba(246,174,45,0.07)",
+                    hovertemplate="<b>alt.me %{x|%Y-%m-%d}</b>: %{y}<extra></extra>",
+                ))
+
+                # CMC history overlay if available
+                cmc_hist = fg_cmc.get("history", pd.DataFrame())
+                if not cmc_hist.empty:
+                    fig_fg.add_trace(go.Scatter(
+                        x=cmc_hist["timestamp"], y=cmc_hist["value"],
+                        mode="lines", name="CoinMarketCap",
+                        line=dict(color=C["blue"], width=1.5, dash="dot"),
+                        hovertemplate="<b>CMC %{x|%Y-%m-%d}</b>: %{y}<extra></extra>",
+                    ))
+
+                for y_val, color, label in [(75, C["up"], "Extreme Greed"), (25, C["dn"], "Extreme Fear")]:
+                    fig_fg.add_hline(y=y_val, line_color=color, line_width=1, line_dash="dot",
+                                     annotation_text=label, annotation_font_size=9,
+                                     annotation_font_color=color)
+                fig_fg.add_hrect(y0=75, y1=100, fillcolor=C["up"], opacity=0.03, line_width=0)
+                fig_fg.add_hrect(y0=0,  y1=25,  fillcolor=C["dn"], opacity=0.03, line_width=0)
+
+                fig_fg.update_layout(**layout(height=300,
+                    yaxis=dict(range=[0,100], gridcolor=C["grid"]),
+                    xaxis=dict(gridcolor=C["grid"]),
+                    showlegend=True,
+                    legend=dict(bgcolor=C["card"], bordercolor=C["border"], borderwidth=1,
+                                font=dict(size=10), x=0, y=1),
+                ))
+                st.plotly_chart(fig_fg, use_container_width=True)
+
+                # Last 7 days mini table
+                last7 = fg_df.tail(7)[["timestamp","value","value_classification"]].iloc[::-1].reset_index(drop=True)
+                rows_fg = "".join([
+                    f'<tr><td style="color:#6e7681;font-size:11px;padding:6px 8px">{row.timestamp.strftime("%b %d")}</td>'
+                    f'<td style="text-align:right;color:{fg_label(row.value)[1]};font-size:12px;padding:6px 8px;font-family:IBM Plex Mono,monospace">{row.value}</td>'
+                    f'<td style="text-align:right;color:#6e7681;font-size:11px;padding:6px 8px;font-family:IBM Plex Sans,sans-serif">{row.value_classification}</td></tr>'
+                    for row in last7.itertuples()
+                ])
+                st.markdown(f"""
+                <table style="width:100%;border-collapse:collapse;margin-top:4px;border:1px solid #21262d;border-radius:6px;overflow:hidden">
+                  <thead><tr style="background:#161b22">
+                    <th style="text-align:left;font-size:10px;color:#484f58;padding:7px 8px;border-bottom:1px solid #21262d">Date</th>
+                    <th style="text-align:right;font-size:10px;color:#484f58;padding:7px 8px;border-bottom:1px solid #21262d">alt.me</th>
+                    <th style="text-align:right;font-size:10px;color:#484f58;padding:7px 8px;border-bottom:1px solid #21262d">Label</th>
+                  </tr></thead>
+                  <tbody>{rows_fg}</tbody>
+                </table>
+                """, unsafe_allow_html=True)
+
+            with ci3:
+                avg7  = int(fg_df["value"].tail(7).mean())
+                avg30 = int(fg_df["value"].tail(30).mean())
+                avg90 = int(fg_df["value"].tail(90).mean())
+
+                for avg, period in [(avg7,"7-Day Avg"), (avg30,"30-Day Avg"), (avg90,"90-Day Avg")]:
+                    lbl_a, col_a = fg_label(avg)
+                    st.markdown(f"""
+                    <div style="background:#161b22;border:1px solid #21262d;border-radius:6px;padding:12px 14px;margin-bottom:8px">
+                      <div style="font-size:.68rem;color:#6e7681;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">{period}</div>
+                      <div style="font-size:1.5rem;font-weight:600;color:{col_a};font-family:IBM Plex Mono,monospace">{avg}</div>
+                      <div style="font-size:.72rem;color:{col_a};font-family:IBM Plex Mono,monospace">{lbl_a}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                if fg_cmc_now is not None:
+                    st.markdown(f"""
+                    <div style="background:#161b22;border:1px solid #1f6feb;border-radius:6px;padding:12px 14px;margin-top:4px">
+                      <div style="font-size:.68rem;color:#6e7681;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">CMC — Today</div>
+                      <div style="font-size:1.5rem;font-weight:600;color:{fg_cmc_color};font-family:IBM Plex Mono,monospace">{fg_cmc_now}</div>
+                      <div style="font-size:.72rem;color:{fg_cmc_color};font-family:IBM Plex Mono,monospace">{fg_cmc_lbl}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # ── RSI ────────────────────────────────
+        st.markdown('<div class="sec-hdr"><span class="sec-ttl">RSI — Relative Strength Index</span><span class="sec-cnt">14-period daily · BTC/USD</span></div>', unsafe_allow_html=True)
+
+        rsi    = calc_rsi(price, 14)
+        rsi_1y = rsi.tail(365)
+        p_1y   = price.loc[rsi_1y.index]
+
+        fig_rsi = go.Figure()
+        fig_rsi.add_trace(go.Scatter(x=p_1y.index, y=p_1y, name="BTC Price",
+            line=dict(color=C["light"], width=1.5), yaxis="y2",
+            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>$%{y:,.0f}<extra></extra>"))
+        fig_rsi.add_trace(go.Scatter(x=rsi_1y.index, y=rsi_1y, name="RSI(14)",
+            line=dict(color=C["blue"], width=1.8), fill="tozeroy",
+            fillcolor="rgba(88,166,255,0.07)",
+            hovertemplate="RSI: %{y:.1f}<extra></extra>"))
+        for lv, col, lbl in [(70, C["dn"], "Overbought 70"), (30, C["up"], "Oversold 30"), (50, C["txt"], "")]:
+            fig_rsi.add_hline(y=lv, line_color=col, line_width=1, line_dash="dot" if lv != 50 else "dash",
+                              annotation_text=lbl, annotation_font_size=9, annotation_font_color=col,
+                              annotation_position="right")
+        fig_rsi.add_hrect(y0=70, y1=100, fillcolor=C["dn"], opacity=0.04, line_width=0)
+        fig_rsi.add_hrect(y0=0,  y1=30,  fillcolor=C["up"], opacity=0.04, line_width=0)
+
+        fig_rsi.update_layout(**layout(
+            height=380,
+            yaxis=dict(range=[0,100], gridcolor=C["grid"], title="RSI"),
+            yaxis2=dict(overlaying="y", side="right", gridcolor="rgba(0,0,0,0)",
+                        tickprefix="$", tickformat=",.0f"),
+            showlegend=True,
+            legend=dict(bgcolor=C["card"],bordercolor=C["border"],borderwidth=1,font=dict(size=10),x=0,y=1),
+            hovermode="x unified",
+        ))
+        st.plotly_chart(fig_rsi, use_container_width=True)
+
+        cur_rsi = float(rsi.iloc[-1])
+        rsi_status = "Overbought" if cur_rsi > 70 else "Oversold" if cur_rsi < 30 else "Neutral"
+        rsi_col    = C["dn"] if cur_rsi > 70 else C["up"] if cur_rsi < 30 else C["yellow"]
+        st.markdown(f'<p style="font-size:.75rem;color:{rsi_col};font-family:IBM Plex Mono,monospace">Current RSI(14): <b>{cur_rsi:.1f}</b> — {rsi_status}</p>', unsafe_allow_html=True)
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # ── MACD ───────────────────────────────
+        st.markdown('<div class="sec-hdr"><span class="sec-ttl">MACD</span><span class="sec-cnt">12 / 26 / 9 · Daily · BTC/USD</span></div>', unsafe_allow_html=True)
+
+        macd, sig, hist = calc_macd(price)
+        n_macd = 365
+        m_idx  = macd.tail(n_macd).index
+        p_m    = price.loc[m_idx]
+
+        fig_macd = go.Figure()
+        fig_macd.add_trace(go.Scatter(x=p_m.index, y=p_m, name="BTC Price",
+            line=dict(color=C["light"], width=1.5), yaxis="y2",
+            hovertemplate="$%{y:,.0f}<extra></extra>"))
+        fig_macd.add_trace(go.Scatter(x=m_idx, y=macd.loc[m_idx], name="MACD",
+            line=dict(color=C["blue"], width=1.5),
+            hovertemplate="MACD: %{y:.1f}<extra></extra>"))
+        fig_macd.add_trace(go.Scatter(x=m_idx, y=sig.loc[m_idx], name="Signal",
+            line=dict(color=C["yellow"], width=1.5),
+            hovertemplate="Signal: %{y:.1f}<extra></extra>"))
+        hist_vals = hist.loc[m_idx]
+        fig_macd.add_trace(go.Bar(
+            x=m_idx, y=hist_vals, name="Histogram",
+            marker_color=[C["up"] if v >= 0 else C["dn"] for v in hist_vals],
+            opacity=0.7,
+            hovertemplate="Hist: %{y:.1f}<extra></extra>",
+        ))
+        fig_macd.add_hline(y=0, line_color=C["border"], line_width=1)
+        fig_macd.update_layout(**layout(
+            height=380,
+            yaxis=dict(gridcolor=C["grid"], title="MACD"),
+            yaxis2=dict(overlaying="y", side="right", gridcolor="rgba(0,0,0,0)",
+                        tickprefix="$", tickformat=",.0f"),
+            showlegend=True,
+            legend=dict(bgcolor=C["card"],bordercolor=C["border"],borderwidth=1,font=dict(size=10),x=0,y=1),
+            hovermode="x unified",
+            barmode="relative",
+        ))
+        st.plotly_chart(fig_macd, use_container_width=True)
+
+        cur_macd  = float(macd.iloc[-1])
+        cur_sig   = float(sig.iloc[-1])
+        macd_dir  = "Bullish" if cur_macd > cur_sig else "Bearish"
+        macd_col  = C["up"] if cur_macd > cur_sig else C["dn"]
+        st.markdown(f'<p style="font-size:.75rem;color:{macd_col};font-family:IBM Plex Mono,monospace">MACD: <b>{cur_macd:.1f}</b> | Signal: <b>{cur_sig:.1f}</b> | Status: <b>{macd_dir}</b></p>', unsafe_allow_html=True)
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # ── PI CYCLE TOP ───────────────────────
+        st.markdown('<div class="sec-hdr"><span class="sec-ttl">Pi Cycle Top Indicator</span><span class="sec-cnt">111 DMA vs 350 DMA × 2 — historically signals cycle tops at crossover</span></div>', unsafe_allow_html=True)
+
+        df_pi = calc_pi_cycle(btc_hist)
+        df_pi = df_pi.tail(1500).dropna()
+
+        fig_pi = go.Figure()
+        fig_pi.add_trace(go.Scatter(x=df_pi.index, y=df_pi["Close"], name="BTC Price",
+            line=dict(color=C["light"], width=1.5),
+            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>$%{y:,.0f}<extra></extra>"))
+        fig_pi.add_trace(go.Scatter(x=df_pi.index, y=df_pi["SMA111"], name="111 DMA",
+            line=dict(color=C["up"], width=1.8),
+            hovertemplate="111 DMA: $%{y:,.0f}<extra></extra>"))
+        fig_pi.add_trace(go.Scatter(x=df_pi.index, y=df_pi["SMA350x2"], name="350 DMA × 2",
+            line=dict(color=C["dn"], width=1.8),
+            hovertemplate="350 DMA×2: $%{y:,.0f}<extra></extra>"))
+
+        fig_pi.update_layout(**layout(
+            height=440,
+            yaxis=dict(type="log", gridcolor=C["grid"], tickprefix="$", tickformat=",.0f"),
+            xaxis=dict(gridcolor=C["grid"]),
+            showlegend=True,
+            legend=dict(bgcolor=C["card"],bordercolor=C["border"],borderwidth=1,font=dict(size=10)),
+            hovermode="x unified",
+        ))
+        st.plotly_chart(fig_pi, use_container_width=True)
+
+        sma111_now   = float(df_pi["SMA111"].iloc[-1])
+        sma350x2_now = float(df_pi["SMA350x2"].iloc[-1])
+        pi_gap       = ((sma111_now / sma350x2_now) - 1) * 100
+        pi_col       = C["dn"] if pi_gap >= 0 else C["up"]
+        pi_lbl       = "CONVERGENCE — potential cycle top approaching" if pi_gap > -5 else "Normal — no top signal"
+        st.markdown(f'<p style="font-size:.75rem;color:{pi_col};font-family:IBM Plex Mono,monospace">111 DMA: <b>${sma111_now:,.0f}</b> | 350×2: <b>${sma350x2_now:,.0f}</b> | Gap: <b>{pi_gap:+.1f}%</b> — {pi_lbl}</p>', unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════
+# TAB 4 — RAINBOW CHART
+# ══════════════════════════════════════════
+with tab_rainbow:
+    if not YF_OK or btc_hist.empty:
+        st.warning("yfinance required. Run: `pip install yfinance`")
+    else:
+        st.markdown('<div class="sec-hdr"><span class="sec-ttl">Bitcoin Rainbow Price Chart</span><span class="sec-cnt">Logarithmic regression — long-term valuation bands — includes 2-year projection</span></div>', unsafe_allow_html=True)
+
+        fig_rb, rb_a, rb_b = make_rainbow_chart(btc_hist)
+        st.plotly_chart(fig_rb, use_container_width=True)
+
+        genesis  = pd.Timestamp("2009-01-03")
+        days_now = (btc_hist.index[-1] - genesis).days
+        reg_now  = 10 ** (rb_a * np.log10(float(days_now)) + rb_b)
+        step     = 0.22
+        offsets  = [step * (i - 4.5) for i in range(10)]
+        band_labels = [
+            "Maximum Bubble Territory","Sell. Seriously, SELL!","FOMO Intensifies",
+            "Is This a Bubble?","HODL","Still Cheap","Accumulate","Buy!","Basically a Fire Sale",
+        ]
+        band_colors = ["#b71c1c","#e53935","#f57c00","#f9a825","#a5d6a7",
+                       "#43a047","#2e7d32","#1976d2","#0d47a1"]
+
+        cur_price = float(btc_hist["Close"].iloc[-1])
+        cur_band  = None
+        for i in range(9):
+            lo = 10 ** (rb_a * np.log10(float(days_now)) + rb_b + offsets[i])
+            hi = 10 ** (rb_a * np.log10(float(days_now)) + rb_b + offsets[i+1])
+            if lo <= cur_price < hi:
+                cur_band = (band_labels[8-i], band_colors[8-i])
+                break
+
+        if cur_band:
+            st.markdown(f"""
+            <div style="background:#161b22;border:1px solid #21262d;border-radius:6px;padding:14px 18px;display:inline-flex;align-items:center;gap:14px;margin-top:8px">
+              <div style="width:12px;height:12px;border-radius:50%;background:{cur_band[1]};flex-shrink:0"></div>
+              <div>
+                <div style="font-size:.68rem;color:#6e7681;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:.07em">Current Band</div>
+                <div style="font-size:1rem;font-weight:600;color:{cur_band[1]};font-family:IBM Plex Mono,monospace;margin-top:2px">{cur_band[0]}</div>
+              </div>
+              <div style="margin-left:24px">
+                <div style="font-size:.68rem;color:#6e7681;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:.07em">Regression Fair Value</div>
+                <div style="font-size:1rem;font-weight:600;color:#e6edf3;font-family:IBM Plex Mono,monospace;margin-top:2px">${reg_now:,.0f}</div>
+              </div>
+              <div style="margin-left:24px">
+                <div style="font-size:.68rem;color:#6e7681;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:.07em">Premium / Discount</div>
+                <div style="font-size:1rem;font-weight:600;color:{'#3fb950' if cur_price<reg_now else '#f85149'};font-family:IBM Plex Mono,monospace;margin-top:2px">{((cur_price/reg_now)-1)*100:+.1f}%</div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <p style="font-size:.7rem;color:#484f58;font-family:IBM Plex Mono,monospace;margin-top:12px">
+        This chart is for educational purposes only. Past performance does not indicate future results.
+        Log regression fitted on available historical data. Projection assumes continued logarithmic growth trend.
+        </p>
+        """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════
+# TAB 5 — ETF FLOWS
+# ══════════════════════════════════════════
+with tab_etf:
+    st.markdown('<div class="sec-hdr"><span class="sec-ttl">Crypto ETF Performance</span><span class="sec-cnt">Bitcoin &amp; Ethereum ETFs — via Yahoo Finance</span></div>', unsafe_allow_html=True)
+
+    if not YF_OK:
+        st.warning("Install yfinance: `pip install yfinance`")
+    else:
+        with st.spinner("Loading ETF data..."):
+            etf_data = fetch_etf_data()
+
+        if not etf_data:
+            st.warning("No ETF data available. Some tickers may be unavailable in your region.")
+        else:
+            etf_rows_js = []
+            for ticker, d in etf_data.items():
+                etf_rows_js.append({
+                    "ticker": ticker,
+                    "name": d["name"],
+                    "price": d["price"],
+                    "pct1d": d["pct1d"],
+                    "pct30d": d["pct30d"],
+                    "vol": d["vol"],
+                    "avg_vol": d["avg_vol_30d"],
+                })
+
+            etf_html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">{IFRAME_FONTS}
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{background:#0d1117;font-family:'IBM Plex Mono',monospace;color:#e6edf3}}
+  table{{width:100%;border-collapse:collapse;font-size:13px}}
+  thead tr{{border-bottom:1px solid #21262d;background:#0d1117}}
+  thead th{{padding:9px 13px;font-size:11px;font-weight:500;color:#6e7681;text-transform:uppercase;
+    letter-spacing:.07em;white-space:nowrap;cursor:pointer;user-select:none;text-align:right;transition:color .12s}}
+  thead th:nth-child(-n+2){{text-align:left}}
+  thead th:hover{{color:#c9d1d9}}
+  thead th.asc::after{{content:' ↑';color:#58a6ff}}
+  thead th.desc::after{{content:' ↓';color:#58a6ff}}
+  tbody tr{{border-bottom:1px solid #161b22;transition:background .1s}}
+  tbody tr:hover{{background:#161b22}}
+  .cl{{padding:12px 13px;text-align:left;white-space:nowrap}}
+  .cr{{padding:12px 13px;text-align:right;white-space:nowrap}}
+  .tk{{font-weight:600;color:#e6edf3;font-size:13px;margin-right:9px}}
+  .nm{{color:#6e7681;font-size:11px;font-family:'IBM Plex Sans',sans-serif}}
+  .up{{color:#3fb950;font-weight:500}}.dn{{color:#f85149;font-weight:500}}.ne{{color:#8b949e}}
+</style></head><body>
+<table>
+  <thead><tr>
+    <th data-c="ticker" data-t="s">Ticker</th>
+    <th data-c="name" data-t="s">Fund</th>
+    <th data-c="price" data-t="n">Price</th>
+    <th data-c="pct1d" data-t="n">1D</th>
+    <th data-c="pct30d" data-t="n">30D</th>
+    <th data-c="vol" data-t="n">Volume (Today)</th>
+    <th data-c="avg_vol" data-t="n">Avg Vol (30D)</th>
+  </tr></thead>
+  <tbody id="tb"></tbody>
+</table>
+<script>
+const D={json.dumps(etf_rows_js)};
+let sc='pct30d',sd=-1;
+function fu(v){{return v==null?'—':'$'+v.toFixed(2)}}
+function fv(v){{
+  if(!v)return'—';
+  if(v>=1e9)return'$'+(v/1e9).toFixed(2)+'B';
+  if(v>=1e6)return'$'+(v/1e6).toFixed(2)+'M';
+  if(v>=1e3)return'$'+(v/1e3).toFixed(1)+'K';
+  return'$'+v.toFixed(0);
+}}
+function fp(v){{return v==null?'—':(v>=0?'+':'')+v.toFixed(2)+'%'}}
+function pc(v){{return v>0?'up':v<0?'dn':'ne'}}
+function gv(r,c){{return c==='ticker'?r.ticker:c==='name'?r.name:r[c]??0}}
+function run(){{
+  let data=[...D];
+  data.sort((a,b)=>{{let av=gv(a,sc),bv=gv(b,sc);return av<bv?-sd:av>bv?sd:0}});
+  document.getElementById('tb').innerHTML=data.map(r=>`<tr>
+    <td class="cl"><span class="tk">${{r.ticker}}</span></td>
+    <td class="cl"><span class="nm">${{r.name}}</span></td>
+    <td class="cr">${{fu(r.price)}}</td>
+    <td class="cr"><span class="${{pc(r.pct1d)}}">${{fp(r.pct1d)}}</span></td>
+    <td class="cr"><span class="${{pc(r.pct30d)}}">${{fp(r.pct30d)}}</span></td>
+    <td class="cr">${{fv(r.vol)}}</td>
+    <td class="cr">${{fv(r.avg_vol)}}</td>
+  </tr>`).join('');
+  document.querySelectorAll('thead th').forEach(h=>{{
+    h.classList.remove('asc','desc');
+    if(h.dataset.c===sc)h.classList.add(sd===1?'asc':'desc');
+  }});
+}}
+document.querySelectorAll('thead th').forEach(h=>h.addEventListener('click',()=>{{
+  sc===h.dataset.c?sd*=-1:(sc=h.dataset.c,sd=h.dataset.t==='s'?1:-1);run();
+}}));
+run();
+</script></body></html>"""
+            components.html(etf_html, height=60 + len(etf_data)*50 + 60, scrolling=False)
+
+            st.markdown("<hr>", unsafe_allow_html=True)
+
+            chart_sub("30-Day Return (%)")
+            tickers_sorted = sorted(etf_data.items(), key=lambda x: x[1]["pct30d"])
+            names_  = [d["name"].split("(")[0].strip()[:28] for _, d in tickers_sorted]
+            pct30_  = [d["pct30d"] for _, d in tickers_sorted]
+            ticks_  = [t for t, _ in tickers_sorted]
+
+            fig_etf = go.Figure(go.Bar(
+                x=pct30_, y=ticks_, orientation="h",
+                marker_color=[C["up"] if v>=0 else C["dn"] for v in pct30_],
+                text=[fp(v) for v in pct30_], textposition="outside",
+                textfont=dict(size=9),
+                customdata=names_,
+                hovertemplate="<b>%{y}</b> — %{customdata}<br>30D: %{x:.2f}%<extra></extra>",
+            ))
+            fig_etf.add_vline(x=0, line_color=C["border"], line_width=1)
+            fig_etf.update_layout(**layout(height=max(300, len(etf_data)*42),
+                xaxis=dict(gridcolor=C["grid"],ticksuffix="%"),
+                yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+            ))
+            st.plotly_chart(fig_etf, use_container_width=True)
+
+            st.markdown('<p style="font-size:.68rem;color:#484f58;font-family:IBM Plex Mono,monospace">Data from Yahoo Finance. ETF flows (AUM changes) require premium data providers (Bloomberg, Farside Investors).</p>', unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════
+# TAB 6 — DOMINANCE
+# ══════════════════════════════════════════
+with tab_dom:
+    st.markdown('<div class="sec-hdr"><span class="sec-ttl">Market Dominance</span><span class="sec-cnt">Share of total crypto market cap</span></div>', unsafe_allow_html=True)
+
+    top_dom = df.nlargest(10, "mcap").copy()
+    total_mcap = df["mcap"].sum()
+    top_dom["dom_pct"] = top_dom["mcap"] / total_mcap * 100
+    others_pct = 100 - top_dom["dom_pct"].sum()
+
+    dom_colors = ["#1f6feb","#388bfd","#58a6ff","#3fb950","#2ea043",
+                  "#1a7f37","#f6ae2d","#d29922","#f85149","#cf222e","#484f58"]
+
+    d1, d2 = st.columns([1.2, 1], gap="medium")
+
+    with d1:
+        chart_sub("Dominance — Top 10 + Others")
+        labels_dom = list(top_dom["symbol"]) + ["Others"]
+        values_dom = list(top_dom["dom_pct"]) + [others_pct]
+
+        fig_dom = go.Figure(go.Pie(
+            labels=labels_dom,
+            values=values_dom,
+            hole=0.58,
+            marker_colors=dom_colors,
+            textinfo="label+percent",
+            textfont=dict(size=11, family="IBM Plex Mono,monospace"),
+            hovertemplate="<b>%{label}</b><br>%{value:.2f}%<br>$%{customdata:,.0f}B<extra></extra>",
+            customdata=[v/1e9 for v in list(top_dom["mcap"])] + [0],
+        ))
+        fig_dom.update_layout(
+            paper_bgcolor=C["bg"],
+            margin=dict(l=0, r=0, t=0, b=0),
+            height=420,
+            legend=dict(bgcolor=C["card"],bordercolor=C["border"],borderwidth=1,
+                        font=dict(size=10,family="IBM Plex Mono,monospace")),
+            showlegend=True,
+            annotations=[dict(
+                text=f"<b>{gm['btc_dom']:.1f}%</b><br>BTC" if gm else "BTC",
+                x=0.5, y=0.5, font=dict(size=16,color=C["blue"],family="IBM Plex Mono,monospace"),
+                showarrow=False,
+            )],
+        )
+        st.plotly_chart(fig_dom, use_container_width=True)
+
+    with d2:
+        chart_sub("Dominance Table")
+        dom_rows = ""
+        for i, row in top_dom.iterrows():
+            bar_w = min(int(row["dom_pct"] * 2.5), 100)
+            dom_rows += f"""
+            <tr>
+              <td style="padding:10px 12px;color:#6e7681;font-size:12px">#{int(row['rank'])}</td>
+              <td style="padding:10px 12px;font-weight:600;color:#e6edf3;font-size:13px">{row['symbol']}</td>
+              <td style="padding:10px 12px;text-align:right;color:#58a6ff;font-family:IBM Plex Mono,monospace;font-size:13px">{row['dom_pct']:.2f}%</td>
+              <td style="padding:10px 12px;text-align:right;color:#8b949e;font-size:12px">{fu(row['mcap'])}</td>
+              <td style="padding:10px 12px">
+                <div style="width:{bar_w}%;height:4px;background:#1f6feb;border-radius:2px;min-width:4px"></div>
+              </td>
+            </tr>"""
+
+        st.markdown(f"""
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            <th style="text-align:left;padding:8px 12px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">#</th>
+            <th style="text-align:left;padding:8px 12px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Asset</th>
+            <th style="text-align:right;padding:8px 12px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Dom%</th>
+            <th style="text-align:right;padding:8px 12px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">MCap</th>
+            <th style="padding:8px 12px;border-bottom:1px solid #21262d"></th>
+          </tr></thead>
+          <tbody>{dom_rows}</tbody>
+        </table>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    if gm:
+        chart_sub("BTC vs ETH vs Altcoins — Market Share")
+        alts_dom = 100 - gm["btc_dom"] - gm["eth_dom"]
+        fig_seg = go.Figure(go.Bar(
+            x=[gm["btc_dom"], gm["eth_dom"], alts_dom],
+            y=["BTC", "ETH", "Altcoins"],
+            orientation="h",
+            marker_color=[C["yellow"], C["blue"], C["up"]],
+            text=[f"{v:.1f}%" for v in [gm["btc_dom"], gm["eth_dom"], alts_dom]],
+            textposition="inside", textfont=dict(size=12, color="#0d1117", family="IBM Plex Mono,monospace"),
+            hovertemplate="<b>%{y}</b>: %{x:.2f}%<extra></extra>",
+        ))
+        fig_seg.update_layout(**layout(
+            height=180,
+            xaxis=dict(ticksuffix="%", range=[0,100], gridcolor=C["grid"]),
+            yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+            margin=dict(l=0,r=0,t=20,b=0),
+        ))
+        st.plotly_chart(fig_seg, use_container_width=True)
+
+
+# ══════════════════════════════════════════
+# TAB 7 — COMMUNITY / SENTIMENT
+# ══════════════════════════════════════════
+with tab_comm:
+    st.markdown('<div class="sec-hdr"><span class="sec-ttl">Market Sentiment &amp; Community</span><span class="sec-cnt">Trends, movers, and crowd sentiment</span></div>', unsafe_allow_html=True)
+
+    s1, s2, s3 = st.columns(3, gap="medium")
+
+    with s1:
+        chart_sub("Top 10 Gainers — 24h")
+        gainers = df.nlargest(10, "pct24h")[["symbol","name","pct24h","price"]]
+        rows_g = ""
+        for _, r in gainers.iterrows():
+            rows_g += f"""<tr>
+              <td style="padding:9px 11px;font-weight:600;color:#e6edf3;font-size:12px">{r['symbol']}</td>
+              <td style="padding:9px 11px;color:#6e7681;font-size:11px;font-family:'IBM Plex Sans',sans-serif">{r['name'][:20]}</td>
+              <td style="padding:9px 11px;text-align:right;color:#3fb950;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500">{fp(r['pct24h'])}</td>
+              <td style="padding:9px 11px;text-align:right;color:#8b949e;font-size:12px">{fu(r['price'])}</td>
+            </tr>"""
+        st.markdown(f"""
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            <th style="text-align:left;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Symbol</th>
+            <th style="text-align:left;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Name</th>
+            <th style="text-align:right;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">24h</th>
+            <th style="text-align:right;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Price</th>
+          </tr></thead>
+          <tbody>{rows_g}</tbody>
+        </table>""", unsafe_allow_html=True)
+
+    with s2:
+        chart_sub("Top 10 Losers — 24h")
+        losers = df.nsmallest(10, "pct24h")[["symbol","name","pct24h","price"]]
+        rows_l = ""
+        for _, r in losers.iterrows():
+            rows_l += f"""<tr>
+              <td style="padding:9px 11px;font-weight:600;color:#e6edf3;font-size:12px">{r['symbol']}</td>
+              <td style="padding:9px 11px;color:#6e7681;font-size:11px;font-family:'IBM Plex Sans',sans-serif">{r['name'][:20]}</td>
+              <td style="padding:9px 11px;text-align:right;color:#f85149;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500">{fp(r['pct24h'])}</td>
+              <td style="padding:9px 11px;text-align:right;color:#8b949e;font-size:12px">{fu(r['price'])}</td>
+            </tr>"""
+        st.markdown(f"""
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            <th style="text-align:left;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Symbol</th>
+            <th style="text-align:left;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Name</th>
+            <th style="text-align:right;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">24h</th>
+            <th style="text-align:right;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Price</th>
+          </tr></thead>
+          <tbody>{rows_l}</tbody>
+        </table>""", unsafe_allow_html=True)
+
+    with s3:
+        chart_sub("Top 10 by Volume — 24h")
+        by_vol = df.nlargest(10, "vol24h")[["symbol","name","vol24h","pct24h"]]
+        rows_v = ""
+        for _, r in by_vol.iterrows():
+            rows_v += f"""<tr>
+              <td style="padding:9px 11px;font-weight:600;color:#e6edf3;font-size:12px">{r['symbol']}</td>
+              <td style="padding:9px 11px;color:#6e7681;font-size:11px;font-family:'IBM Plex Sans',sans-serif">{r['name'][:20]}</td>
+              <td style="padding:9px 11px;text-align:right;color:#58a6ff;font-family:'IBM Plex Mono',monospace;font-size:12px">{fu(r['vol24h'])}</td>
+              <td style="padding:9px 11px;text-align:right;font-size:12px"><span style="color:{'#3fb950' if r['pct24h']>=0 else '#f85149'}">{fp(r['pct24h'])}</span></td>
+            </tr>"""
+        st.markdown(f"""
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            <th style="text-align:left;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Symbol</th>
+            <th style="text-align:left;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Name</th>
+            <th style="text-align:right;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">Volume</th>
+            <th style="text-align:right;padding:7px 11px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #21262d">24h</th>
+          </tr></thead>
+          <tbody>{rows_v}</tbody>
+        </table>""", unsafe_allow_html=True)
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    chart_sub("30-Day Performance Distribution")
+    df_perf = df.copy()
+    bins = [-float("inf"), -20, -10, -5, 0, 5, 10, 20, float("inf")]
+    labels_b = ["<-20%","-20 to -10%","-10 to -5%","-5 to 0%","0 to 5%","5 to 10%","10 to 20%",">20%"]
+    df_perf["bucket"] = pd.cut(df_perf["pct24h"], bins=bins, labels=labels_b)
+    dist = df_perf["bucket"].value_counts().reindex(labels_b).fillna(0)
+
+    fig_dist = go.Figure(go.Bar(
+        x=dist.index, y=dist.values,
+        marker_color=[C["dn"] if i < 4 else C["up"] for i in range(len(dist))],
+        text=dist.values, textposition="outside", textfont=dict(size=10),
+        hovertemplate="<b>%{x}</b><br>%{y} assets<extra></extra>",
+    ))
+    fig_dist.update_layout(**layout(height=280,
+        xaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        yaxis=dict(gridcolor=C["grid"], title="# Assets"),
+        title=dict(text=f"24h Distribution — {len(df)} assets",font=dict(size=12,color=C["light"]),x=0),
+    ))
+    st.plotly_chart(fig_dist, use_container_width=True)
+
+    up_count   = int((df["pct24h"] > 0).sum())
+    dn_count   = int((df["pct24h"] < 0).sum())
+    breadth    = up_count / len(df) * 100
+
+    st.markdown(f"""
+    <div style="display:flex;gap:16px;margin-top:4px">
+      <div style="background:#161b22;border:1px solid #21262d;border-radius:6px;padding:12px 18px;flex:1">
+        <div style="font-size:.68rem;color:#6e7681;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Advancing</div>
+        <div style="font-size:1.3rem;font-weight:600;color:#3fb950;font-family:IBM Plex Mono,monospace">{up_count}</div>
+        <div style="font-size:.7rem;color:#3fb950;font-family:IBM Plex Mono,monospace">{up_count/len(df)*100:.1f}% of top {len(df)}</div>
+      </div>
+      <div style="background:#161b22;border:1px solid #21262d;border-radius:6px;padding:12px 18px;flex:1">
+        <div style="font-size:.68rem;color:#6e7681;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Declining</div>
+        <div style="font-size:1.3rem;font-weight:600;color:#f85149;font-family:IBM Plex Mono,monospace">{dn_count}</div>
+        <div style="font-size:.7rem;color:#f85149;font-family:IBM Plex Mono,monospace">{dn_count/len(df)*100:.1f}% of top {len(df)}</div>
+      </div>
+      <div style="background:#161b22;border:1px solid #21262d;border-radius:6px;padding:12px 18px;flex:1">
+        <div style="font-size:.68rem;color:#6e7681;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Market Breadth</div>
+        <div style="font-size:1.3rem;font-weight:600;color:{'#3fb950' if breadth>55 else '#f85149' if breadth<45 else '#f6ae2d'};font-family:IBM Plex Mono,monospace">{breadth:.1f}%</div>
+        <div style="font-size:.7rem;color:#6e7681;font-family:IBM Plex Mono,monospace">% advancing</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════
+# TAB 8 — MULTI-SOURCE INTELLIGENCE
+# ══════════════════════════════════════════
+with tab_ms:
+    st.markdown('''<div class="sec-hdr">
+        <span class="sec-ttl">Multi-Source Intelligence</span>
+        <span class="sec-cnt">CoinMarketCap · LiveCoinWatch · DefiLlama — cross-verified data</span>
+    </div>''', unsafe_allow_html=True)
+
+    ms_sub1, ms_sub2 = st.columns([1.4, 1], gap="medium")
+
+    with ms_sub1:
+        chart_sub("Price Cross-Verification — CMC vs LiveCoinWatch")
+
+        if CHAVE_LIVECOINWATCH == "LIVECOINWATCH_API_KEY_GOES_HERE":
+            st.markdown('''<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:14px 18px;font-size:.78rem;color:#8b949e;font-family:IBM Plex Mono,monospace">
+            LiveCoinWatch API key not configured. Add your key to <b style="color:#e6edf3">CHAVE_LIVECOINWATCH</b> to enable cross-source price comparison.<br>
+            Free key at <a href="https://www.livecoinwatch.com/tools/api" style="color:#58a6ff" target="_blank">livecoinwatch.com/tools/api</a>
+            </div>''', unsafe_allow_html=True)
+
+            cross_df = df[["symbol","name","price","pct24h","mcap"]].head(20).copy()
+            cross_df["price_avg"] = cross_df["price"]
+            cross_df["diff_pct"]  = 0.0
+            cross_df["n_sources"] = 1
+        else:
+            with st.spinner("Fetching cross-source prices..."):
+                cross_df = fetch_cross_source_prices(df)
+
+        if not cross_df.empty:
+            cx_rows = []
+            for _, r in cross_df.iterrows():
+                lcw_cell  = fu(r.get("price_lcw")) if r.get("price_lcw") else '<span style="color:#484f58">—</span>'
+                diff_val  = r.get("diff_pct", 0) or 0
+                diff_cls  = "up" if abs(diff_val) < 0.1 else ("down" if abs(diff_val) > 0.5 else "")
+                diff_cell = f'<span class="{diff_cls}">{diff_val:+.3f}%</span>' if r.get("price_lcw") else '<span style="color:#484f58">—</span>'
+                src_badge = f'<span style="color:#58a6ff">{int(r.get("n_sources",1))} src</span>'
+                cx_rows.append({
+                    "symbol":    r["symbol"],
+                    "price_cmc": fu(r["price_cmc"]),
+                    "price_lcw": lcw_cell,
+                    "price_avg": fu(r["price_avg"]),
+                    "diff":      diff_cell,
+                    "pct24h":    fp(r.get("pct24h_avg", r.get("pct24h_cmc", 0))),
+                    "src":       src_badge,
+                })
+
+            rows_html = "".join([f'''
+            <tr>
+              <td style="padding:10px 12px;font-weight:600;color:#e6edf3;font-size:13px">{r["symbol"]}</td>
+              <td style="padding:10px 12px;text-align:right;color:#8b949e;font-size:12px">{r["price_cmc"]}</td>
+              <td style="padding:10px 12px;text-align:right;font-size:12px">{r["price_lcw"]}</td>
+              <td style="padding:10px 12px;text-align:right;color:#e6edf3;font-size:12px;font-weight:500">{r["price_avg"]}</td>
+              <td style="padding:10px 12px;text-align:right;font-size:12px">{r["diff"]}</td>
+              <td style="padding:10px 12px;text-align:right;font-size:12px"><span class="{"su" if "+" in str(r["pct24h"]) else "sd"}">{r["pct24h"]}</span></td>
+              <td style="padding:10px 12px;text-align:right">{r["src"]}</td>
+            </tr>''' for r in cx_rows])
+
+            st.markdown(f'''
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead><tr style="border-bottom:1px solid #21262d">
+                <th style="text-align:left;padding:8px 12px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em">Symbol</th>
+                <th style="text-align:right;padding:8px 12px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em">CMC</th>
+                <th style="text-align:right;padding:8px 12px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em">LiveCoinWatch</th>
+                <th style="text-align:right;padding:8px 12px;font-size:10px;color:#58a6ff;text-transform:uppercase;letter-spacing:.07em">Avg Price</th>
+                <th style="text-align:right;padding:8px 12px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em">Spread</th>
+                <th style="text-align:right;padding:8px 12px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em">24h Avg</th>
+                <th style="text-align:right;padding:8px 12px;font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:.07em">Sources</th>
+              </tr></thead>
+              <tbody style="font-family:IBM Plex Mono,monospace">{rows_html}</tbody>
+            </table>
+            <style>.su{{color:#3fb950;font-weight:500}}.sd{{color:#f85149;font-weight:500}}</style>
+            ''', unsafe_allow_html=True)
+
+    with ms_sub2:
+        chart_sub("Source Reliability — Price Spread")
+        if not cross_df.empty and "diff_pct" in cross_df.columns:
+            df_spread = cross_df[cross_df["diff_pct"].abs() > 0].copy()
+            if not df_spread.empty:
+                fig_spread = go.Figure(go.Bar(
+                    x=df_spread["diff_pct"].abs(),
+                    y=df_spread["symbol"],
+                    orientation="h",
+                    marker_color=[C["up"] if abs(v) < 0.1 else C["yellow"] if abs(v) < 0.5 else C["dn"]
+                                  for v in df_spread["diff_pct"]],
+                    text=[f"{v:.3f}%" for v in df_spread["diff_pct"].abs()],
+                    textposition="outside", textfont=dict(size=9),
+                    hovertemplate="<b>%{y}</b><br>Spread: %{x:.4f}%<extra></extra>",
+                ))
+                fig_spread.update_layout(**layout(height=max(250, len(df_spread)*32),
+                    xaxis=dict(gridcolor=C["grid"], ticksuffix="%", title="Absolute spread %"),
+                    yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+                ))
+                st.plotly_chart(fig_spread, use_container_width=True)
+                st.markdown('''<p style="font-size:.68rem;color:#484f58;font-family:IBM Plex Mono,monospace">
+                Green = spread &lt;0.1% (sources agree) · Yellow = 0.1–0.5% · Red = &gt;0.5% (investigate)
+                </p>''', unsafe_allow_html=True)
+            else:
+                st.markdown('<p style="font-size:.75rem;color:#484f58;font-family:IBM Plex Mono,monospace">Enable LiveCoinWatch key to see spread analysis.</p>', unsafe_allow_html=True)
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    st.markdown('''<div class="sec-hdr">
+        <span class="sec-ttl">DeFi Ecosystem — DefiLlama</span>
+        <span class="sec-cnt">On-chain TVL data · free API · no key required</span>
+    </div>''', unsafe_allow_html=True)
+
+    dl1, dl2 = st.columns(2, gap="medium")
+
+    with dl1:
+        chart_sub("Global DeFi TVL — Historical")
+        if not dl_tvl_hist.empty:
+            df_tvl = dl_tvl_hist.tail(730)
+            fig_tvl = go.Figure(go.Scatter(
+                x=df_tvl["date"], y=df_tvl["tvl"],
+                mode="lines", fill="tozeroy",
+                line=dict(color=C["blue"], width=1.8),
+                fillcolor="rgba(31,111,235,0.08)",
+                hovertemplate="<b>%{x|%Y-%m-%d}</b><br>TVL: $%{y:,.0f}<extra></extra>",
+            ))
+            fig_tvl.update_layout(**layout(height=320,
+                yaxis=dict(gridcolor=C["grid"], tickprefix="$", tickformat=".2s"),
+                xaxis=dict(gridcolor=C["grid"]),
+                title=dict(text=f"Global DeFi TVL: ${df_tvl['tvl'].iloc[-1]/1e9:.1f}B",
+                           font=dict(size=12, color=C["light"]), x=0),
+            ))
+            st.plotly_chart(fig_tvl, use_container_width=True)
+        else:
+            st.info("DefiLlama TVL data unavailable.")
+
+    with dl2:
+        chart_sub("TVL by Blockchain — Top 15")
+        if not dl_chains.empty:
+            df_c15 = dl_chains.head(15)
+            fig_chains = go.Figure(go.Bar(
+                x=df_c15["tvl"],
+                y=df_c15["chain"],
+                orientation="h",
+                marker_color=C["blue"],
+                marker_opacity=0.8,
+                text=[fu(v) for v in df_c15["tvl"]],
+                textposition="outside", textfont=dict(size=9),
+                hovertemplate="<b>%{y}</b><br>TVL: $%{x:,.0f}<extra></extra>",
+            ))
+            fig_chains.update_layout(**layout(height=320,
+                xaxis=dict(gridcolor=C["grid"], tickprefix="$", tickformat=".2s"),
+                yaxis=dict(gridcolor="rgba(0,0,0,0)", autorange="reversed"),
+            ))
+            st.plotly_chart(fig_chains, use_container_width=True)
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    chart_sub("Top 30 DeFi Protocols by TVL")
+    if not dl_protos.empty:
+        dl_rows_js = []
+        for _, r in dl_protos.iterrows():
+            dl_rows_js.append({
+                "name":     r["name"],
+                "symbol":   r["symbol"] or "—",
+                "category": r["category"],
+                "chains":   r["chains"],
+                "tvl":      r["tvl"],
+                "c1d":      r["change1d"],
+                "c7d":      r["change7d"],
+            })
+
+        dl_table_html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">{IFRAME_FONTS}
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{background:#0d1117;font-family:'IBM Plex Mono',monospace;color:#e6edf3}}
+  ::-webkit-scrollbar{{width:4px}};::-webkit-scrollbar-thumb{{background:#30363d;border-radius:3px}}
+  table{{width:100%;border-collapse:collapse;font-size:12px}}
+  thead tr{{border-bottom:1px solid #21262d;background:#0d1117;position:sticky;top:0;z-index:5}}
+  thead th{{padding:8px 12px;font-size:10px;font-weight:500;color:#6e7681;text-transform:uppercase;letter-spacing:.07em;white-space:nowrap;cursor:pointer;text-align:right;transition:color .12s}}
+  thead th:nth-child(-n+3){{text-align:left}}
+  thead th:hover{{color:#c9d1d9}}
+  thead th.asc::after{{content:' ↑';color:#58a6ff}}thead th.desc::after{{content:' ↓';color:#58a6ff}}
+  tbody tr{{border-bottom:1px solid #161b22;transition:background .1s}}
+  tbody tr:hover{{background:#161b22}}
+  .cl{{padding:10px 12px;text-align:left;white-space:nowrap}}.cr{{padding:10px 12px;text-align:right;white-space:nowrap}}
+  .nm{{font-weight:600;color:#e6edf3;font-size:12px;margin-right:8px}}.sym{{color:#6e7681;font-size:10px}}
+  .cat{{color:#58a6ff;font-size:10px;font-family:'IBM Plex Sans',sans-serif}}
+  .ch{{color:#484f58;font-size:10px;font-family:'IBM Plex Sans',sans-serif}}
+  .up{{color:#3fb950;font-weight:500}}.dn{{color:#f85149;font-weight:500}}.ne{{color:#8b949e}}
+</style></head><body>
+<table><thead><tr>
+  <th data-c="name" data-t="s">Protocol</th>
+  <th data-c="sym" data-t="s">Symbol</th>
+  <th data-c="category" data-t="s">Category</th>
+  <th data-c="tvl" data-t="n">TVL</th>
+  <th data-c="c1d" data-t="n">1D %</th>
+  <th data-c="c7d" data-t="n">7D %</th>
+  <th data-c="chains" data-t="s">Chains</th>
+</tr></thead><tbody id="tb"></tbody></table>
+<script>
+const D={json.dumps(dl_rows_js)};
+let sc='tvl',sd=-1;
+function fu(v){{if(!v)return'$0';if(v>=1e9)return'$'+(v/1e9).toFixed(2)+'B';if(v>=1e6)return'$'+(v/1e6).toFixed(2)+'M';if(v>=1e3)return'$'+(v/1e3).toFixed(1)+'K';return'$'+v.toFixed(0)}}
+function fp(v){{return v==null?'—':(v>=0?'+':'')+v.toFixed(2)+'%'}}
+function pc(v){{return v>0?'up':v<0?'dn':'ne'}}
+function gv(r,c){{return{{name:r.name,sym:r.symbol,category:r.category,chains:r.chains,tvl:r.tvl,c1d:r.c1d,c7d:r.c7d}}[c]??0}}
+function run(){{
+  let data=[...D];data.sort((a,b)=>{{let av=gv(a,sc),bv=gv(b,sc);return av<bv?-sd:av>bv?sd:0}});
+  document.getElementById('tb').innerHTML=data.map(r=>`<tr>
+    <td class="cl"><span class="nm">${{r.name}}</span></td>
+    <td class="cl"><span class="sym">${{r.symbol}}</span></td>
+    <td class="cl"><span class="cat">${{r.category}}</span></td>
+    <td class="cr"><b>${{fu(r.tvl)}}</b></td>
+    <td class="cr"><span class="${{pc(r.c1d)}}">${{fp(r.c1d)}}</span></td>
+    <td class="cr"><span class="${{pc(r.c7d)}}">${{fp(r.c7d)}}</span></td>
+    <td class="cl"><span class="ch">${{r.chains}}</span></td>
+  </tr>`).join('');
+  document.querySelectorAll('thead th').forEach(h=>{{h.classList.remove('asc','desc');if(h.dataset.c===sc)h.classList.add(sd===1?'asc':'desc')}});
+}}
+document.querySelectorAll('thead th').forEach(h=>h.addEventListener('click',()=>{{sc===h.dataset.c?sd*=-1:(sc=h.dataset.c,sd=h.dataset.t==='s'?1:-1);run()}}));
+run();
+</script></body></html>"""
+        components.html(dl_table_html, height=min(80 + len(dl_protos)*42, 800), scrolling=True)
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+        cat_sub1, cat_sub2 = st.columns(2, gap="medium")
+        with cat_sub1:
+            chart_sub("TVL by Protocol Category")
+            cat_tvl = dl_protos.groupby("category")["tvl"].sum().sort_values(ascending=False).head(10)
+            colors_cat = [C["blue"],C["line"],"#388bfd","#79c0ff",C["up"],C["yellow"],
+                          "#f0b429",C["dn"],"#cf222e","#484f58"]
+            fig_cat = go.Figure(go.Pie(
+                labels=cat_tvl.index, values=cat_tvl.values,
+                hole=0.5, marker_colors=colors_cat[:len(cat_tvl)],
+                textinfo="label+percent", textfont=dict(size=10, family="IBM Plex Mono,monospace"),
+                hovertemplate="<b>%{label}</b><br>TVL: $%{value:,.0f}<extra></extra>",
+            ))
+            fig_cat.update_layout(paper_bgcolor=C["bg"],margin=dict(l=0,r=0,t=0,b=0),height=300,
+                legend=dict(bgcolor=C["card"],bordercolor=C["border"],borderwidth=1,font=dict(size=9)))
+            st.plotly_chart(fig_cat, use_container_width=True)
+
+        with cat_sub2:
+            chart_sub("Top 10 Protocols — 7D Change (%)")
+            df_proto_sorted = dl_protos.nlargest(10,"tvl").sort_values("change7d", ascending=True)
+            fig_p7d = go.Figure(go.Bar(
+                x=df_proto_sorted["change7d"],
+                y=df_proto_sorted["name"].str[:20],
+                orientation="h",
+                marker_color=[C["up"] if v>=0 else C["dn"] for v in df_proto_sorted["change7d"]],
+                text=[fp(v) for v in df_proto_sorted["change7d"]],
+                textposition="outside", textfont=dict(size=9),
+                hovertemplate="<b>%{y}</b><br>7D: %{x:.2f}%<extra></extra>",
+            ))
+            fig_p7d.add_vline(x=0, line_color=C["border"], line_width=1)
+            fig_p7d.update_layout(**layout(height=300,
+                xaxis=dict(gridcolor=C["grid"],ticksuffix="%"),
+                yaxis=dict(gridcolor="rgba(0,0,0,0)",tickfont=dict(size=10)),
+            ))
+            st.plotly_chart(fig_p7d, use_container_width=True)
+
+    # ── Source summary card ──────────────────
+    st.markdown("<hr>", unsafe_allow_html=True)
+    cmc_ok  = not df.empty
+    lcw_ok  = CHAVE_LIVECOINWATCH != "LIVECOINWATCH_API_KEY_GOES_HERE"
+    dl_ok   = not dl_chains.empty
+    yf_ok   = YF_OK and not btc_hist.empty
+
+    src_cards = [
+        ("CoinMarketCap",  "Pro API · 100 assets · price, mcap, volume, 24h/7d change", cmc_ok),
+        ("LiveCoinWatch",  "Free API · cross-verification · price + delta",              lcw_ok),
+        ("DefiLlama",      "Free API · TVL by chain & protocol · no key required",       dl_ok),
+        ("Yahoo Finance",  "Free · historical OHLCV · RSI, MACD, Pi Cycle, Rainbow",    yf_ok),
+        ("alternative.me", "Free · Fear & Greed Index · 90-day history",                not fg_df.empty),
+    ]
+
+    cards_html = "".join([f'''
+    <div style="background:#161b22;border:1px solid {"#2ea043" if ok else "#30363d"};border-radius:6px;padding:12px 16px;flex:1;min-width:160px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+        <div style="width:7px;height:7px;border-radius:50%;background:{"#3fb950" if ok else "#484f58"};flex-shrink:0"></div>
+        <span style="font-size:.72rem;font-weight:600;color:#e6edf3;font-family:IBM Plex Mono,monospace">{name}</span>
+      </div>
+      <div style="font-size:.67rem;color:#6e7681;font-family:IBM Plex Sans,sans-serif;line-height:1.5">{desc}</div>
+      <div style="font-size:.65rem;color:{"#3fb950" if ok else "#484f58"};font-family:IBM Plex Mono,monospace;margin-top:4px">{"● ACTIVE" if ok else "○ NOT CONFIGURED"}</div>
+    </div>
+    ''' for name, desc, ok in src_cards])
+
+    st.markdown(f'''
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">{cards_html}</div>
+    ''', unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════
+# TAB 9 — AI ANALYST
+# ══════════════════════════════════════════
+with tab_ai:
+    if "msgs" not in st.session_state:
+        st.session_state.msgs = [{
+            "role": "assistant",
+            "text": "System initialized. I have access to live CoinMarketCap data (USD), Fear & Greed index, and can search the web for current market context. What would you like to analyze?",
+            "sources": [],
+        }]
+
+    msgs_json = json.dumps([{"role":m["role"],"text":m["text"],"sources":m.get("sources",[])} for m in st.session_state.msgs])
+
+    ai_html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">{IFRAME_FONTS}
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{background:#0d1117;font-family:'IBM Plex Sans',sans-serif;color:#e6edf3;padding:4px 2px 10px}}
+  .ai-header{{display:flex;align-items:center;gap:10px;padding:0 0 12px;border-bottom:1px solid #21262d;margin-bottom:14px}}
+  .dot{{width:8px;height:8px;background:#3fb950;border-radius:50%;animation:p 2s infinite;flex-shrink:0}}
+  @keyframes p{{0%,100%{{opacity:1}}50%{{opacity:.3}}}}
+  .ttl{{font-size:.78rem;font-weight:600;color:#58a6ff;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.06em}}
+  .sub{{font-size:.68rem;color:#484f58;font-family:'IBM Plex Mono',monospace;margin-left:auto}}
+  .mai{{display:flex;gap:10px;margin-bottom:13px}}
+  .muser{{display:flex;flex-direction:row-reverse;gap:10px;margin-bottom:13px}}
+  .av{{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;flex-shrink:0;font-family:'IBM Plex Mono',monospace}}
+  .avai{{background:#1f3a5f;color:#58a6ff;border:1px solid #1f6feb}}
+  .avme{{background:#1a2f1a;color:#3fb950;border:1px solid #2ea043}}
+  .bub{{padding:.55rem .85rem;border-radius:6px;font-size:.82rem;line-height:1.65;max-width:88%;color:#c9d1d9}}
+  .bai{{background:#1c2128;border:1px solid #30363d}}
+  .bme{{background:#0f2b0f;border:1px solid #1a4a1a}}
+  .src{{font-size:.65rem;color:#484f58;margin-top:.5rem;font-family:'IBM Plex Mono',monospace;line-height:1.8;padding:.4rem .6rem;background:#0d1117;border-radius:4px;border-left:2px solid #21262d}}
+  .src a{{color:#58a6ff;text-decoration:none;display:inline-block;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}}
+  .src a:hover{{color:#79c0ff;text-decoration:underline}}
+  .bub b,.bub strong{{color:#e6edf3}}
+  .bub ul,.bub ol{{padding-left:1.2rem;margin:.3rem 0}}
+  .bub li{{margin-bottom:.2rem}}
+  .bub p{{margin-bottom:.45rem}}.bub p:last-child{{margin:0}}
+  .bub h1,.bub h2,.bub h3{{color:#e6edf3;margin:.5rem 0 .25rem;font-size:.9rem}}
+  .bub code{{background:#21262d;color:#79c0ff;padding:1px 5px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:.79rem}}
+  .bub pre{{background:#161b22;border:1px solid #30363d;border-radius:5px;padding:.5rem .75rem;margin:.35rem 0;overflow-x:auto}}
+  .bub pre code{{background:none;padding:0}}
+  .bub hr{{border:none;border-top:1px solid #21262d;margin:.5rem 0}}
+</style></head><body>
+<div class="ai-header"><div class="dot"></div><span class="ttl">AI Analyst — Gemini 2.5 Flash</span><span class="sub">Live data + web search</span></div>
+<div id="chat"></div>
+<script>
+const M={msgs_json};
+function md(t){{
+  return t
+    .replace(/```([\\s\\S]*?)```/g,'<pre><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/^###(.+)$/gm,'<h3>$1</h3>').replace(/^##(.+)$/gm,'<h2>$1</h2>').replace(/^#(.+)$/gm,'<h1>$1</h1>')
+    .replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>').replace(/\\*(.+?)\\*/g,'<em>$1</em>')
+    .replace(/^[\\-\\*] (.+)$/gm,'<li>$1</li>').replace(/^\\d+\\. (.+)$/gm,'<li>$1</li>')
+    .replace(/\\n\\n/g,'</p><p>').replace(/^(?!<)/gm,'').replace(/^(.+)$/s,'<p>$1</p>');
+}}
+const chat=document.getElementById('chat');
+M.forEach(m=>{{
+  const w=document.createElement('div');w.className=m.role==='user'?'muser':'mai';
+  const av=document.createElement('div');av.className='av '+(m.role==='user'?'avme':'avai');av.textContent=m.role==='user'?'ME':'AI';
+  const inn=document.createElement('div');
+  const b=document.createElement('div');b.className='bub '+(m.role==='user'?'bme':'bai');b.innerHTML=md(m.text);inn.appendChild(b);
+  if(m.sources&&m.sources.length>0){{
+    const s=document.createElement('div');s.className='src';
+    s.innerHTML='<span style="color:#484f58">📎 Fontes:</span> '+m.sources.map(x=>`<a href="${{x.uri}}" target="_blank" title="${{x.uri}}">${{(x.title||x.uri).substring(0,55)}}</a>`).join('<br>  ');
+    inn.appendChild(s);
+  }} else if(m.role==='assistant' && m.text && !m.text.startsWith('System') && !m.text.startsWith('Chat')){{
+    const s=document.createElement('div');s.className='src';
+    s.innerHTML='<span style="color:#484f58">📊 Dados: CoinMarketCap (live) · alternative.me · DefiLlama · Yahoo Finance</span>';
+    inn.appendChild(s);
+  }}
+  w.appendChild(av);w.appendChild(inn);chat.appendChild(w);
+}});
+window.scrollTo(0,document.body.scrollHeight);
+</script></body></html>"""
+
+    chat_h = min(130 + len(st.session_state.msgs)*85, 580)
+    components.html(ai_html, height=chat_h, scrolling=True)
+
+    question = st.chat_input("Ex: Why is BTC falling? What's the ETH outlook? Analyze MACD signals.")
+
+    c_clr, c_ref, _ = st.columns([1.1,1.1,7.8])
+    with c_clr:
+        if st.button("Clear", use_container_width=True):
+            st.session_state.msgs = [{"role":"assistant","text":"Chat cleared.","sources":[]}]
+            st.rerun()
+    with c_ref:
+        if st.button("Refresh", use_container_width=True):
+            st.cache_data.clear(); st.rerun()
+
+    if question:
+        st.session_state.msgs.append({"role":"user","text":question,"sources":[]})
+        with st.spinner("Querying live data and web sources..."):
+            try:
+                client = genai.Client()
+                ctx    = df[["rank","symbol","name","price","pct24h","pct7d","mcap","vol24h"]].head(50).to_string(index=False)
+                gm_str = ""
+                if gm:
+                    gm_str = f"\nGlobal: MCap=${gm['mcap']/1e12:.2f}T | Vol=${gm['vol24h']/1e9:.1f}B | BTC Dom={gm['btc_dom']:.1f}% | ETH Dom={gm['eth_dom']:.1f}%"
+                fg_str = f"\nFear & Greed: {fg_now} ({fg_lbl})" if fg_now else ""
+                dl_str = f"\nDefiLlama Global DeFi TVL: ${dl_tvl_hist['tvl'].iloc[-1]/1e9:.1f}B" if not dl_tvl_hist.empty else ""
+                dl_top3 = ", ".join(dl_protos.head(3)["name"].tolist()) if not dl_protos.empty else ""
+                dl_top_str = f"\nTop DeFi protocols by TVL: {dl_top3}" if dl_top3 else ""
+
+                prompt = f"""You are a senior quantitative crypto analyst.
+Respond in the same language the user used. Be concise and technically precise.
+IMPORTANT: Always use the web search tool to find the most recent news and data before answering.
+
+LIVE DATA (USD):
+{ctx}{gm_str}{fg_str}{dl_str}{dl_top_str}
+
+User: {question}
+
+Structure: 1) Data-based answer 2) External context (cite your web sources) 3) Risks/opportunities
+Always cite the sources you used at the end."""
+
+                resp = client.models.generate_content(
+                    model="gemini-2.5-flash", contents=prompt,
+                    config=types.GenerateContentConfig(
+                        tools=[types.Tool(google_search=types.GoogleSearch())],
+                        temperature=0.2,
+                    )
+                )
+                sources = []
+                try:
+                    cand = resp.candidates[0] if resp.candidates else None
+                    if cand and hasattr(cand,"grounding_metadata") and cand.grounding_metadata:
+                        seen_uris = set()
+                        for ch in (cand.grounding_metadata.grounding_chunks or []):
+                            if hasattr(ch,"web") and ch.web and ch.web.uri not in seen_uris:
+                                seen_uris.add(ch.web.uri)
+                                sources.append({"uri":ch.web.uri,"title":ch.web.title or ch.web.uri})
+                except: pass
+                # Fallback: se não veio grounding, adiciona fontes padrão dos dados live
+                if not sources:
+                    sources = [
+                        {"uri":"https://coinmarketcap.com","title":"CoinMarketCap — Live prices"},
+                        {"uri":"https://alternative.me/crypto/fear-and-greed-index/","title":"alternative.me — Fear & Greed"},
+                        {"uri":"https://defillama.com","title":"DefiLlama — DeFi TVL"},
+                    ]
+                st.session_state.msgs.append({"role":"assistant","text":resp.text,"sources":sources})
+            except Exception as e:
+                st.session_state.msgs.append({"role":"assistant","text":f"Error: {e}","sources":[]})
+        st.rerun()
