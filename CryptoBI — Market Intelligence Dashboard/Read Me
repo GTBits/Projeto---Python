@@ -1,0 +1,237 @@
+# 📊 CryptoBI — Market Intelligence Dashboard
+
+> Dashboard de inteligência de mercado cripto em tempo real, com análise técnica, indicadores on-chain, medo & ganância multi-fonte, ETFs, DeFi TVL e análise por IA com busca na web.
+
+---
+
+
+---
+
+## ✨ Funcionalidades
+
+| Tab | O que faz |
+|-----|-----------|
+| **Market** | Tabela interativa com Top 100 cryptos — preço, 24h, 7d, market cap, volume, supply. Busca e ordenação por qualquer coluna. |
+| **Charts** | Gráfico de barras 24h/7d, treemap de dominância de market cap, scatter vol vs mcap (log), top 20 performance. |
+| **Indicators** | Fear & Greed Index multi-fonte (alternative.me + CoinMarketCap + média composta), RSI 14 períodos, MACD 12/26/9, Pi Cycle Top Indicator. |
+| **Rainbow** | Bitcoin Rainbow Chart com regressão logarítmica + projeção de 2 anos, bandas de valuation, indicador da banda atual e prêmio/desconto vs fair value. |
+| **ETF Flows** | Performance dos principais ETFs de BTC e ETH (IBIT, FBTC, GBTC, ETHA, etc.) via Yahoo Finance — preço, 1D, 30D, volume. |
+| **Dominance** | Pie chart de dominância de market cap Top 10, tabela com barras, segmentação BTC vs ETH vs Altcoins. |
+| **Community** | Top 10 gainers, losers e por volume (24h). Distribuição de performance, breadth de mercado (% ativos subindo). |
+| **Multi-Source** | Cross-verificação de preços CMC vs LiveCoinWatch com análise de spread. TVL global DeFi histórico, TVL por blockchain e protocolo (DefiLlama). |
+| **AI Analyst** | Chat com Gemini 2.5 Flash + Google Search em tempo real. Recebe dados live do dashboard como contexto. Sempre cita fontes. |
+
+---
+
+## 🛠️ Stack Tecnológica
+
+- **Frontend/App**: [Streamlit](https://streamlit.io/) + HTML/JS embarcado via `components.html`
+- **Gráficos**: [Plotly](https://plotly.com/python/) (go + px)
+- **Dados de mercado**: [CoinMarketCap API](https://coinmarketcap.com/api/) (Pro)
+- **Dados históricos BTC**: [yfinance](https://github.com/ranaroussi/yfinance) (Yahoo Finance)
+- **Fear & Greed**: [alternative.me](https://alternative.me/crypto/fear-and-greed-index/) + [CoinMarketCap v3](https://coinmarketcap.com/api/documentation/v1/#operation/getV3FearAndGreedLatest)
+- **DeFi TVL**: [DefiLlama API](https://defillama.com/docs/api) (gratuita, sem chave)
+- **Cross-verificação**: [LiveCoinWatch API](https://www.livecoinwatch.com/tools/api) (gratuita)
+- **IA**: [Google Gemini 2.5 Flash](https://ai.google.dev/) com Google Search grounding
+
+---
+
+## 📦 Instalação
+
+### 1. Clone o repositório
+
+```bash
+git clone https://github.com/seu-usuario/cryptobi.git
+cd cryptobi
+```
+
+### 2. Crie um ambiente virtual (recomendado)
+
+```bash
+python -m venv venv
+source venv/bin/activate        # Linux/Mac
+venv\Scripts\activate           # Windows
+```
+
+### 3. Instale as dependências
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Configure as variáveis de ambiente
+
+```bash
+cp .env.example .env
+```
+
+Edite o arquivo `.env` e preencha suas chaves de API:
+
+```env
+CHAVE_COINMARKETCAP=sua_chave_aqui
+CHAVE_GEMINI=sua_chave_aqui
+CHAVE_LIVECOINWATCH=sua_chave_aqui   # opcional
+```
+
+> ⚠️ **Atenção**: Alternativamente, você pode editar as variáveis diretamente nas primeiras linhas do `app.py` (seção `API KEYS`).
+
+### 5. Execute o app
+
+```bash
+streamlit run app.py
+```
+
+Acesse em: **http://localhost:8501**
+
+---
+
+## 🔑 API Keys
+
+| API | Plano | Link | Obrigatório |
+|-----|-------|------|-------------|
+| CoinMarketCap | Free (Basic) | [coinmarketcap.com/api](https://coinmarketcap.com/api/) | ✅ Sim |
+| Google Gemini | Free tier disponível | [aistudio.google.com](https://aistudio.google.com/) | ✅ Para AI Analyst |
+| LiveCoinWatch | Free | [livecoinwatch.com/tools/api](https://www.livecoinwatch.com/tools/api) | ⬜ Opcional |
+| DefiLlama | Free (sem chave) | [api.llama.fi](https://api.llama.fi) | ✅ Automático |
+| alternative.me | Free (sem chave) | [api.alternative.me](https://api.alternative.me/fng/) | ✅ Automático |
+| Yahoo Finance | Free (sem chave) | via yfinance | ✅ Automático |
+
+---
+
+## 🗂️ Estrutura do Projeto
+
+```
+cryptobi/
+│
+├── app.py                  # Aplicação principal Streamlit (single-file)
+├── requirements.txt        # Dependências Python
+├── .env.example            # Template de variáveis de ambiente
+├── .gitignore              # Arquivos ignorados pelo Git
+├── README.md               # Este arquivo
+│
+├── assets/
+│   └── demo.mp4            # Vídeo de demonstração do dashboard
+│
+└── docs/
+    └── ARCHITECTURE.md     # Detalhes técnicos da arquitetura
+```
+
+---
+
+## 🏗️ Arquitetura
+
+O projeto é uma **aplicação Streamlit single-file** (`app.py`) dividida em seções bem definidas:
+
+```
+app.py
+├── API KEYS              → Configuração das chaves
+├── PAGE CONFIG           → Streamlit page setup
+├── GLOBAL CSS            → Dark theme IBM Plex
+├── CHART THEME           → Paleta de cores e layout base Plotly
+├── DATA FETCHERS         → Funções @st.cache_data para cada fonte
+│   ├── fetch_crypto()         CoinMarketCap Top 100
+│   ├── fetch_global()         Global metrics CMC
+│   ├── fetch_fear_greed()     alternative.me
+│   ├── fetch_fear_greed_cmc() CMC Fear & Greed
+│   ├── fetch_btc_history()    Yahoo Finance OHLCV
+│   ├── fetch_livecoinwatch()  LiveCoinWatch prices
+│   ├── fetch_defillama_*()    DefiLlama TVL
+│   └── fetch_etf_data()       ETF data via yfinance
+├── TECHNICAL INDICATORS  → calc_rsi(), calc_macd(), calc_pi_cycle()
+├── RAINBOW CHART         → make_rainbow_chart() — log regression
+├── FORMATTERS            → fu(), fp(), fg_label() helpers
+├── LOAD DATA             → Carregamento inicial com spinner
+├── NAV BAR               → Header fixo
+├── STATS BAR             → Métricas globais
+├── KPI CARDS             → 5 cards principais
+└── TABS (9)              → Cada tab é uma seção independente
+```
+
+---
+
+## 📊 Indicadores Técnicos Implementados
+
+### RSI (Relative Strength Index)
+- Período: 14 dias
+- Cálculo via EWM (Exponentially Weighted Moving Average)
+- Zonas: Oversold < 30, Overbought > 70
+
+### MACD
+- Configuração: 12 / 26 / 9
+- Componentes: linha MACD, linha Signal, histograma colorido
+- Overlay com preço BTC no eixo secundário
+
+### Pi Cycle Top Indicator
+- 111 DMA vs 350 DMA × 2
+- Historicamente sinaliza topos de ciclo quando as linhas se cruzam
+- Escala logarítmica
+
+### Bitcoin Rainbow Chart
+- Regressão logarítmica sobre dados históricos desde 2009
+- 9 bandas de valuation com offset de 0.22 em log scale
+- Projeção de 2 anos além dos dados atuais
+- Indicação automática da banda atual e prêmio/desconto vs fair value
+
+---
+
+## 🤖 AI Analyst
+
+O tab **AI Analyst** usa o **Gemini 2.5 Flash** com as seguintes capacidades:
+
+- **Contexto em tempo real**: recebe automaticamente os dados live do dashboard (Top 50 cryptos, dominância, Fear & Greed, TVL DeFi)
+- **Google Search grounding**: busca notícias e contexto macro recente na web
+- **Fontes sempre visíveis**: cada resposta exibe os links das fontes consultadas
+- **Multilíngue**: responde no idioma da pergunta (PT-BR, EN, ES...)
+- **Estrutura consistente**: 1) Análise dos dados 2) Contexto externo 3) Riscos/oportunidades
+
+---
+
+## 🚀 Deploy
+
+### Streamlit Community Cloud (gratuito)
+
+1. Faça fork deste repositório
+2. Acesse [share.streamlit.io](https://share.streamlit.io)
+3. Conecte seu GitHub e selecione este repo
+4. Em **Advanced Settings → Secrets**, adicione:
+
+```toml
+CHAVE_COINMARKETCAP = "sua_chave"
+CHAVE_GEMINI = "sua_chave"
+CHAVE_LIVECOINWATCH = "sua_chave"
+```
+
+### Docker (opcional)
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY app.py .
+EXPOSE 8501
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+```
+
+---
+
+## ⚠️ Disclaimer
+
+Este dashboard é para fins **educacionais e informativos** apenas. Não constitui aconselhamento financeiro ou de investimento. Sempre faça sua própria pesquisa (DYOR) antes de tomar decisões de investimento.
+
+---
+
+## 📄 Licença
+
+MIT License — veja [LICENSE](LICENSE) para detalhes.
+
+---
+
+## 🙏 Créditos
+
+- [CoinMarketCap](https://coinmarketcap.com/) — dados de mercado
+- [DefiLlama](https://defillama.com/) — TVL on-chain
+- [alternative.me](https://alternative.me/) — Fear & Greed Index
+- [Google Gemini](https://ai.google.dev/) — AI Analyst
+- [Streamlit](https://streamlit.io/) — framework do app
+- [Plotly](https://plotly.com/) — visualizações interativas
